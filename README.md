@@ -1,5 +1,10 @@
 # 📊 TradeVault — AI-Powered Trading Journal & Analytics
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-TradeVault-00F7FF?style=for-the-badge&logo=fastapi&logoColor=black)](https://tradevault-njskyp0p.b4a.run/)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-TradeVault-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Muhammadatif153700/TradeVault)
+
+🌐 **Live Demo**: [https://tradevault-njskyp0p.b4a.run/](https://tradevault-njskyp0p.b4a.run/)
+
 **TradeVault** is a modern, high-performance trading journal and analytics web application built with **ASP.NET Core 10 Blazor Server** and powered by **Google Gemini AI Vision**. It automatically reads trading chart screenshots to extract entry prices, stop losses, take profit levels, patterns, and trade outcomes.
 
 ---
