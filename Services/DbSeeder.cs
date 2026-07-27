@@ -9,6 +9,10 @@ public static class DbSeeder
 {
     public static async Task SeedAsync(IServiceProvider services)
     {
+        // Ensure database directory exists before SQLite tries to create/open file
+        var dbPath = Path.Combine(Directory.GetCurrentDirectory(), "Data");
+        Directory.CreateDirectory(dbPath);
+
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
