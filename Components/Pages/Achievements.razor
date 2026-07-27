@@ -1,0 +1,106 @@
+@page "/achievements"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Achievements — TradeVault</PageTitle>
+
+<div class="tv-section-header mb-4">
+    <div>
+        <div class="tv-section-title">🏆 Achievements</div>
+        <div class="tv-section-sub">Your trading milestones and badges</div>
+    </div>
+</div>
+
+@if (loading)
+{
+    <div class="text-muted animate-pulse">Loading achievements...</div>
+}
+else
+{
+    <!-- Summary -->
+    <div class="tv-card mb-6" style="background:linear-gradient(135deg,rgba(212,175,55,0.08),rgba(184,144,46,0.08));border-color:rgba(212,175,55,0.2);">
+        <div class="tv-card-body" style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+            <div style="font-size:56px;">🏆</div>
+            <div style="flex:1;">
+                <div style="font-size:24px;font-weight:800;font-family:'Space Grotesk',sans-serif;background:var(--gradient-primary);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">@earned.Count Badges Earned</div>
+                <div class="text-muted">Keep trading consistently to unlock more achievements</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:32px;font-weight:800;font-family:'Space Grotesk',sans-serif;color:var(--accent-warning);">@earned.Count / @allBadges.Count</div>
+                <div class="text-muted text-xs">Completion Rate: @(allBadges.Count > 0 ? (earned.Count * 100 / allBadges.Count) : 0)%</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Earned Badges -->
+    @if (earned.Count > 0)
+    {
+        <div style="margin-bottom:24px;">
+            <div class="tv-section-title mb-4">✨ Earned Badges</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;">
+                @foreach (var a in earned)
+                {
+                    <div class="tv-card" style="border-color:rgba(245,158,11,0.3);background:linear-gradient(135deg,rgba(245,158,11,0.06),rgba(239,68,68,0.04));">
+                        <div class="tv-card-body">
+                            <div style="font-size:36px;margin-bottom:10px;">@a.Badge.Split(' ')[0]</div>
+                            <div style="font-size:14px;font-weight:700;margin-bottom:4px;">@string.Join(" ", a.Badge.Split(' ').Skip(1))</div>
+                            <div class="text-sm text-muted mb-3">@a.Description</div>
+                            <div class="text-xs text-muted">🗓️ Earned @a.EarnedAt.ToString("MMM dd, yyyy")</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- All Possible Badges (locked) -->
+    <div>
+        <div class="tv-section-title mb-4">🔒 Locked Badges</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;">
+            @foreach (var b in allBadges.Where(b => !earned.Any(e => e.Badge == b.badge)))
+            {
+                <div class="tv-card" style="opacity:0.5;filter:grayscale(0.6);">
+                    <div class="tv-card-body">
+                        <div style="font-size:36px;margin-bottom:10px;filter:grayscale(1);">@b.badge.Split(' ')[0]</div>
+                        <div style="font-size:14px;font-weight:700;margin-bottom:4px;">@string.Join(" ", b.badge.Split(' ').Skip(1))</div>
+                        <div class="text-sm text-muted">@b.desc</div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<UserAchievement> earned = [];
+    private bool loading = true;
+
+    private readonly List<(string badge, string desc)> allBadges =
+    [
+        ("🚀 First Trade", "Log your first trade"),
+        ("📊 Trade Master", "Log 50+ trades"),
+        ("💰 Profit Streak", "Win 5 trades in a row"),
+        ("🔥 10 RR Month", "Achieve 10+ RR in a single month"),
+        ("🎯 Streak Master", "5 consecutive winning trades"),
+        ("🧘 Disciplined", "No rule breaks for 10 trades"),
+        ("📈 Consistent", "Positive P&L for 4 consecutive weeks"),
+        ("🏆 Elite Trader", "Reach 70%+ win rate over 20+ trades"),
+        ("📝 Journal Keeper", "Write 10 journal entries"),
+        ("🎓 Strategy Expert", "Use 5+ different strategies"),
+        ("💎 Diamond Hands", "Hold a trade for 24+ hours profitably"),
+        ("⚡ Quick Profit", "10 same-day winning trades"),
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        earned = await TradeService.GetAchievementsAsync(userId);
+        loading = false;
+    }
+}

@@ -1,0 +1,163 @@
+@page "/profile"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using TradeVault.Data
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject AuthenticationStateProvider AuthState
+@inject UserManager<ApplicationUser> UserManager
+@inject TradeService TradeService
+
+<PageTitle>Profile — TradeVault</PageTitle>
+
+<div class="tv-section-header mb-4">
+    <div>
+        <div class="tv-section-title">👤 Profile</div>
+        <div class="tv-section-sub">Manage your account settings</div>
+    </div>
+</div>
+
+@if (loading)
+{
+    <div class="text-muted animate-pulse">Loading profile...</div>
+}
+else
+{
+    <div class="grid-2">
+        <!-- Profile Card -->
+        <div class="tv-card">
+            <div class="tv-card-body" style="text-align:center;padding:36px;">
+                <div style="width:80px;height:80px;border-radius:50%;background:var(--gradient-primary);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:800;color:white;margin:0 auto 16px;box-shadow:var(--shadow-glow-blue);">
+                    @(email?.Substring(0, 1).ToUpper())
+                </div>
+                <div style="font-size:20px;font-weight:700;font-family:'Space Grotesk',sans-serif;margin-bottom:4px;">@(email?.Split('@')[0])</div>
+                <div class="text-muted mb-4">@email</div>
+                <span class="tv-badge tv-badge-premium">⭐ Premium Trader</span>
+
+                <div style="margin-top:24px;padding-top:24px;border-top:1px solid var(--glass-border);">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;text-align:left;">
+                        <div>
+                            <div class="tv-stat-label">Total Trades</div>
+                            <div style="font-size:20px;font-weight:700;">@totalTrades</div>
+                        </div>
+                        <div>
+                            <div class="tv-stat-label">Member Since</div>
+                            <div style="font-size:16px;font-weight:600;">@memberSince</div>
+                        </div>
+                        <div>
+                            <div class="tv-stat-label">Win Rate</div>
+                            <div style="font-size:20px;font-weight:700;color:var(--accent-success);">@winRate.ToString("N1")%</div>
+                        </div>
+                        <div>
+                            <div class="tv-stat-label">Net P&amp;L</div>
+                            <div style="font-size:20px;font-weight:700;color:@(netPnL >= 0 ? "var(--accent-success)" : "var(--accent-danger)");">@(netPnL >= 0 ? "+" : "")$@netPnL.ToString("N2")</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Change Password -->
+        <div style="display:flex;flex-direction:column;gap:14px;">
+            <div class="tv-card">
+                <div class="tv-card-header"><span class="tv-card-title">🔒 Change Password</span></div>
+                <div class="tv-card-body">
+                    @if (!string.IsNullOrEmpty(pwMessage))
+                    {
+                        <div class="tv-alert @(pwSuccess ? "tv-alert-success" : "tv-alert-danger") mb-4">@pwMessage</div>
+                    }
+                    <div class="tv-form-group">
+                        <label class="tv-label">Current Password</label>
+                        <input type="password" class="tv-input" @bind="currentPw" placeholder="••••••••" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">New Password</label>
+                        <input type="password" class="tv-input" @bind="newPw" placeholder="••••••••" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Confirm New Password</label>
+                        <input type="password" class="tv-input" @bind="confirmPw" placeholder="••••••••" />
+                    </div>
+                    <button class="tv-btn tv-btn-primary w-full" @onclick="ChangePassword" disabled="@pwLoading">
+                        @(pwLoading ? "⏳ Updating..." : "🔒 Update Password")
+                    </button>
+                </div>
+            </div>
+
+            <div class="tv-card">
+                <div class="tv-card-header"><span class="tv-card-title">⚙️ Account Info</span></div>
+                <div class="tv-card-body">
+                    <div class="flex justify-between" style="padding:10px 0;border-bottom:1px solid var(--glass-border);">
+                        <span class="text-muted">Email</span>
+                        <span style="font-weight:600;">@email</span>
+                    </div>
+                    <div class="flex justify-between" style="padding:10px 0;border-bottom:1px solid var(--glass-border);">
+                        <span class="text-muted">Email Confirmed</span>
+                        <span class="text-success">✅ Yes</span>
+                    </div>
+                    <div class="flex justify-between" style="padding:10px 0;">
+                        <span class="text-muted">Account Type</span>
+                        <span class="tv-badge tv-badge-premium">⭐ Premium</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string? email;
+    private string memberSince = "";
+    private bool loading = true;
+    private int totalTrades;
+    private double winRate;
+    private decimal netPnL;
+    private string userId = "";
+
+    private string currentPw = "";
+    private string newPw = "";
+    private string confirmPw = "";
+    private bool pwLoading = false;
+    private string pwMessage = "";
+    private bool pwSuccess = false;
+    private ApplicationUser? appUser;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        appUser = await UserManager.FindByIdAsync(userId);
+        email = appUser?.Email ?? "";
+        memberSince = "2025";
+
+        var trades = await TradeService.GetTradesAsync(userId);
+        totalTrades = trades.Count;
+        var closed = trades.Where(t => t.Status != "PENDING").ToList();
+        winRate = closed.Count > 0 ? (double)closed.Count(t => t.Status == "WIN") / closed.Count * 100 : 0;
+        netPnL = trades.Sum(t => t.PnL ?? 0);
+        loading = false;
+    }
+
+    private async Task ChangePassword()
+    {
+        if (appUser == null) return;
+        if (newPw != confirmPw) { pwMessage = "New passwords don't match."; pwSuccess = false; return; }
+        if (newPw.Length < 6) { pwMessage = "Password must be at least 6 characters."; pwSuccess = false; return; }
+
+        pwLoading = true;
+        var result = await UserManager.ChangePasswordAsync(appUser, currentPw, newPw);
+        if (result.Succeeded)
+        {
+            pwMessage = "Password updated successfully! ✅";
+            pwSuccess = true;
+            currentPw = newPw = confirmPw = "";
+        }
+        else
+        {
+            pwMessage = "Error: " + string.Join(" ", result.Errors.Select(e => e.Description));
+            pwSuccess = false;
+        }
+        pwLoading = false;
+    }
+}

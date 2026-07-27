@@ -1,0 +1,103 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthState
+@using Microsoft.AspNetCore.Components.Authorization
+
+<AuthorizeView>
+    <Authorized>
+        <div class="tv-shell">
+            <!-- Sidebar -->
+            <nav class="tv-sidebar">
+                <div class="tv-sidebar-logo">
+                    <div class="tv-logo-icon">📈</div>
+                    <span class="tv-logo-text">TradeVault</span>
+                </div>
+
+                <div class="tv-nav">
+                    <div class="tv-nav-section-label">Overview</div>
+                    <NavLink class="tv-nav-item" href="/" Match="NavLinkMatch.All">
+                        <span class="nav-icon">🏠</span> Dashboard
+                    </NavLink>
+                    <NavLink class="tv-nav-item" href="/calendar">
+                        <span class="nav-icon">📅</span> Calendar
+                    </NavLink>
+
+                    <div class="tv-nav-section-label">Trading</div>
+                    <NavLink class="tv-nav-item" href="/trades">
+                        <span class="nav-icon">📊</span> Trade Log
+                    </NavLink>
+                    <NavLink class="tv-nav-item" href="/trades/new">
+                        <span class="nav-icon">➕</span> Add Trade
+                    </NavLink>
+                    <NavLink class="tv-nav-item" href="/journal">
+                        <span class="nav-icon">📝</span> Journal
+                    </NavLink>
+                    <NavLink class="tv-nav-item" href="/goals">
+                        <span class="nav-icon">🎯</span> Goals
+                    </NavLink>
+
+                    <div class="tv-nav-section-label">Analytics</div>
+                    <NavLink class="tv-nav-item" href="/analytics/weekly">
+                        <span class="nav-icon">📈</span> Weekly
+                    </NavLink>
+                    <NavLink class="tv-nav-item" href="/analytics/monthly">
+                        <span class="nav-icon">📆</span> Monthly
+                    </NavLink>
+                    <NavLink class="tv-nav-item" href="/analytics/yearly">
+                        <span class="nav-icon">🗓️</span> Yearly
+                    </NavLink>
+
+                    <div class="tv-nav-section-label">Account</div>
+                    <NavLink class="tv-nav-item" href="/profile">
+                        <span class="nav-icon">👤</span> Profile
+                    </NavLink>
+                    <NavLink class="tv-nav-item" href="/achievements">
+                        <span class="nav-icon">🏆</span> Achievements
+                    </NavLink>
+                </div>
+
+                <div class="tv-sidebar-footer">
+                    <div class="tv-user-pill" @onclick="@(() => Nav.NavigateTo("/profile"))">
+                        <div class="tv-avatar">
+                            @context.User.Identity?.Name?.Substring(0, 1).ToUpper()
+                        </div>
+                        <div class="tv-user-info">
+                            <div class="tv-user-name">@context.User.Identity?.Name?.Split('@')[0]</div>
+                            <div class="tv-user-plan">⭐ Premium</div>
+                        </div>
+                    </div>
+                    <form action="/Account/Logout" method="post" style="margin-top: 8px;">
+                        <AntiforgeryToken />
+                        <input type="hidden" name="ReturnUrl" value="/" />
+                        <button type="submit" class="tv-btn tv-btn-ghost w-full" style="justify-content:center;">
+                            🚪 Sign Out
+                        </button>
+                    </form>
+                </div>
+            </nav>
+
+            <!-- Main Content -->
+            <div class="tv-main">
+                <header class="tv-topbar">
+                    <span class="tv-page-title">TradeVault</span>
+                    <div class="tv-topbar-actions">
+                        <a href="/trades/new" class="tv-btn tv-btn-primary tv-btn-sm">
+                            ➕ New Trade
+                        </a>
+                    </div>
+                </header>
+
+                <div class="tv-content">
+                    @Body
+                </div>
+            </div>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <div style="background: var(--bg-primary); min-height: 100vh;">
+            @Body
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+<div id="blazor-error-ui" data-nosnippet></div>

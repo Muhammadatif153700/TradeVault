@@ -1,0 +1,442 @@
+@page "/analytics/weekly"
+@page "/analytics/monthly"
+@page "/analytics/yearly"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Analytics — TradeVault</PageTitle>
+
+<div class="tv-section-header mb-4">
+    <div>
+        <div class="tv-section-title">📈 Analytics</div>
+        <div class="tv-section-sub">Deep-dive into your trading performance</div>
+    </div>
+</div>
+
+<!-- Period Tabs -->
+<div class="tv-tabs mb-4" style="max-width:400px;">
+    <a class="tv-tab @(Period == "weekly" ? "active" : "")" href="/analytics/weekly">Weekly</a>
+    <a class="tv-tab @(Period == "monthly" ? "active" : "")" href="/analytics/monthly">Monthly</a>
+    <a class="tv-tab @(Period == "yearly" ? "active" : "")" href="/analytics/yearly">Yearly</a>
+</div>
+
+@if (loading)
+{
+    <div class="text-muted animate-pulse">Computing analytics...</div>
+}
+else if (allTrades.Count == 0)
+{
+    <div class="tv-card" style="text-align:center;padding:60px;">
+        <div style="font-size:48px;margin-bottom:12px;">📊</div>
+        <div style="font-size:18px;font-weight:600;">No trade data yet</div>
+        <div class="text-muted mb-4">Log some trades to see analytics</div>
+        <a href="/trades/new" class="tv-btn tv-btn-primary">➕ Add Trade</a>
+    </div>
+}
+else
+{
+    <!-- KPI Row -->
+    <div class="tv-stat-grid mb-6">
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">📋</div>
+            <div class="tv-stat-label">Trades</div>
+            <div class="tv-stat-value neutral">@periodTrades.Count</div>
+            <div class="tv-stat-sub">This @Period.Replace("ly", "")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">🎯</div>
+            <div class="tv-stat-label">Win Rate</div>
+            <div class="tv-stat-value positive">@periodWinRate.ToString("N1")%</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">💰</div>
+            <div class="tv-stat-label">Net P&amp;L</div>
+            <div class="tv-stat-value @(periodPnL >= 0 ? "positive" : "negative")">@(periodPnL >= 0 ? "+" : "")$@periodPnL.ToString("N2")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">⚡</div>
+            <div class="tv-stat-label">Net RR</div>
+            <div class="tv-stat-value @(periodRR >= 0 ? "positive" : "negative")">@(periodRR >= 0 ? "+" : "")@periodRR.ToString("N2")R</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">📈</div>
+            <div class="tv-stat-label">Avg RR</div>
+            <div class="tv-stat-value neutral">@periodAvgRR.ToString("N2")R</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">🏆</div>
+            <div class="tv-stat-label">Best Trade</div>
+            <div class="tv-stat-value positive">+$@bestTrade.ToString("N2")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">📉</div>
+            <div class="tv-stat-label">Worst Trade</div>
+            <div class="tv-stat-value negative">-$@Math.Abs(worstTrade).ToString("N2")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">🔥</div>
+            <div class="tv-stat-label">Profit Factor</div>
+            <div class="tv-stat-value @(periodPF >= 1.5m ? "positive" : periodPF < 1 ? "negative" : "neutral")">@periodPF.ToString("N2")</div>
+        </div>
+    </div>
+
+    <div class="grid-2 mb-6">
+        <!-- Win/Loss Distribution -->
+        <div class="tv-card">
+            <div class="tv-card-header"><span class="tv-card-title">🎯 Win/Loss Distribution</span></div>
+            <div class="tv-card-body">
+                @{
+                    var wins = periodTrades.Count(t => t.Status == "WIN");
+                    var losses = periodTrades.Count(t => t.Status == "LOSS");
+                    var be = periodTrades.Count(t => t.Status is "BREAKEVEN" or "PARTIAL");
+                    var total = Math.Max(1, periodTrades.Count);
+                    var wPct = (double)wins / total * 100;
+                    var lPct = (double)losses / total * 100;
+                    var bPct = (double)be / total * 100;
+                }
+                <!-- Donut Chart via SVG -->
+                <div style="display:flex;align-items:center;gap:32px;">
+                    <div style="position:relative;width:140px;height:140px;flex-shrink:0;">
+                        <svg viewBox="0 0 140 140" style="transform:rotate(-90deg);">
+                            @{
+                                double cx = 70, cy = 70, r = 54, sw = 20;
+                                double circ = 2 * Math.PI * r;
+                                double wDash = circ * wPct / 100;
+                                double lDash = circ * lPct / 100;
+                                double bDash = circ * bPct / 100;
+                            }
+                            <circle cx="@cx" cy="@cy" r="@r" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="@sw" />
+                            @if (wins > 0)
+                            {
+                                <circle cx="@cx" cy="@cy" r="@r" fill="none" stroke="#10b981" stroke-width="@sw"
+                                        stroke-dasharray="@wDash @circ" stroke-dashoffset="0" />
+                            }
+                            @if (losses > 0)
+                            {
+                                <circle cx="@cx" cy="@cy" r="@r" fill="none" stroke="#ef4444" stroke-width="@sw"
+                                        stroke-dasharray="@lDash @circ" stroke-dashoffset="-@wDash" />
+                            }
+                            @if (be > 0)
+                            {
+                                <circle cx="@cx" cy="@cy" r="@r" fill="none" stroke="#d4af37" stroke-width="@sw"
+                                        stroke-dasharray="@bDash @circ" stroke-dashoffset="-@(wDash + lDash)" />
+                            }
+                        </svg>
+                        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                            <div style="font-size:22px;font-weight:800;font-family:'Space Grotesk',sans-serif;color:var(--text-primary);">@periodWinRate.ToString("N0")%</div>
+                            <div class="text-xs text-muted">Win Rate</div>
+                        </div>
+                    </div>
+                    <div style="flex:1;">
+                        <div class="flex justify-between mb-2"><span class="text-success font-semibold">✅ Wins</span><span style="font-weight:700;">@wins (@wPct.ToString("N0")%)</span></div>
+                        <div class="flex justify-between mb-2"><span class="text-danger font-semibold">❌ Losses</span><span style="font-weight:700;">@losses (@lPct.ToString("N0")%)</span></div>
+                        <div class="flex justify-between"><span class="text-primary font-semibold">⚖️ BE/Partial</span><span style="font-weight:700;">@be (@bPct.ToString("N0")%)</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance by Pair -->
+        <div class="tv-card">
+            <div class="tv-card-header"><span class="tv-card-title">💱 Performance by Pair</span></div>
+            <div class="tv-card-body">
+                @{
+                    var byPair = periodTrades.GroupBy(t => t.Pair)
+                        .Select(g => new { Pair = g.Key, PnL = g.Sum(t => t.PnL ?? 0), Count = g.Count(), WR = g.Count(t => t.Status == "WIN") / (double)Math.Max(1, g.Count()) * 100 })
+                        .OrderByDescending(x => x.PnL).ToList();
+                }
+                @foreach (var p in byPair)
+                {
+                    <div style="margin-bottom:12px;">
+                        <div class="flex justify-between mb-1">
+                            <span style="font-weight:700;font-family:'Space Grotesk',sans-serif;">@p.Pair</span>
+                            <div class="flex gap-3">
+                                <span class="text-xs text-muted">@p.Count trades · @p.WR.ToString("N0")% WR</span>
+                                <span class="text-xs @(p.PnL >= 0 ? "text-success" : "text-danger") font-semibold">@(p.PnL >= 0 ? "+" : "")$@p.PnL.ToString("N2")</span>
+                            </div>
+                        </div>
+                        @{
+                            var maxPnL = byPair.Max(x => Math.Abs((double)x.PnL));
+                            var barPct = maxPnL > 0 ? Math.Abs((double)p.PnL) / maxPnL * 100 : 0;
+                        }
+                        <div class="tv-progress">
+                            <div class="tv-progress-bar @(p.PnL >= 0 ? "success" : "danger")" style="width:@barPct%"></div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="grid-2 mb-6">
+        <!-- Performance by Session -->
+        <div class="tv-card">
+            <div class="tv-card-header"><span class="tv-card-title">⏰ Performance by Session</span></div>
+            <div class="tv-card-body">
+                @{
+                    var bySess = periodTrades.GroupBy(t => t.Session ?? "Unknown")
+                        .Select(g => new { Session = g.Key, PnL = g.Sum(t => t.PnL ?? 0), Count = g.Count(), WR = g.Count(t => t.Status == "WIN") / (double)Math.Max(1, g.Count()) * 100 })
+                        .OrderByDescending(x => x.PnL).ToList();
+                }
+                @foreach (var s in bySess)
+                {
+                    <div class="flex justify-between" style="padding:10px 0;border-bottom:1px solid var(--glass-border);">
+                        <div>
+                            <div style="font-weight:600;">@s.Session</div>
+                            <div class="text-xs text-muted">@s.Count trades · @s.WR.ToString("N0")% WR</div>
+                        </div>
+                        <div class="@(s.PnL >= 0 ? "text-success" : "text-danger") font-semibold">@(s.PnL >= 0 ? "+" : "")$@s.PnL.ToString("N2")</div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Performance by Strategy -->
+        <div class="tv-card">
+            <div class="tv-card-header"><span class="tv-card-title">🎲 Performance by Strategy</span></div>
+            <div class="tv-card-body">
+                @{
+                    var byStrat = periodTrades.GroupBy(t => t.Strategy ?? "Unknown")
+                        .Select(g => new { Strategy = g.Key, PnL = g.Sum(t => t.PnL ?? 0), Count = g.Count(), WR = g.Count(t => t.Status == "WIN") / (double)Math.Max(1, g.Count()) * 100 })
+                        .OrderByDescending(x => x.PnL).ToList();
+                }
+                @foreach (var s in byStrat)
+                {
+                    <div class="flex justify-between" style="padding:10px 0;border-bottom:1px solid var(--glass-border);">
+                        <div>
+                            <div style="font-weight:600;font-size:12.5px;">@s.Strategy</div>
+                            <div class="text-xs text-muted">@s.Count trades · @s.WR.ToString("N0")% WR</div>
+                        </div>
+                        <div class="@(s.PnL >= 0 ? "text-success" : "text-danger") font-semibold">@(s.PnL >= 0 ? "+" : "")$@s.PnL.ToString("N2")</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Long vs Short Performance -->
+    var longTrades  = periodTrades.Where(t => t.Direction == "BUY" && t.Status != "PENDING").ToList();
+    var shortTrades = periodTrades.Where(t => t.Direction == "SELL" && t.Status != "PENDING").ToList();
+    var longWR  = longTrades.Count  > 0 ? (double)longTrades.Count(t  => t.Status == "WIN") / longTrades.Count  * 100 : 0;
+    var shortWR = shortTrades.Count > 0 ? (double)shortTrades.Count(t => t.Status == "WIN") / shortTrades.Count * 100 : 0;
+    var longPnL  = longTrades.Sum(t  => t.PnL ?? 0);
+    var shortPnL = shortTrades.Sum(t => t.PnL ?? 0);
+    @if (longTrades.Count > 0 || shortTrades.Count > 0)
+    {
+        <div class="tv-card mb-4">
+            <div class="tv-card-header"><span class="tv-card-title">🔀 Long vs Short Performance</span></div>
+            <div class="tv-card-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                    <!-- Longs -->
+                    <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:var(--radius-md);padding:16px;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+                            <span style="font-size:18px;">🟢</span>
+                            <span style="font-weight:700;font-size:14px;">Long (BUY)</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div>
+                                <div class="tv-stat-label">Trades</div>
+                                <div style="font-size:20px;font-weight:700;">@longTrades.Count</div>
+                            </div>
+                            <div>
+                                <div class="tv-stat-label">Win Rate</div>
+                                <div style="font-size:20px;font-weight:700;color:var(--accent-success);">@longWR.ToString("N1")%</div>
+                            </div>
+                            <div>
+                                <div class="tv-stat-label">Wins</div>
+                                <div style="font-size:18px;font-weight:600;color:var(--accent-success);">@longTrades.Count(t => t.Status == "WIN")</div>
+                            </div>
+                            <div>
+                                <div class="tv-stat-label">Net P&L</div>
+                                <div style="font-size:18px;font-weight:600;color:@(longPnL >= 0 ? "var(--accent-success)" : "var(--accent-danger)");">@(longPnL >= 0 ? "+" : "")$@longPnL.ToString("N2")</div>
+                            </div>
+                        </div>
+                        <!-- Win rate bar -->
+                        <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;margin-top:12px;overflow:hidden;">
+                            <div style="height:100%;width:@longWR.ToString("N0")%;background:var(--accent-success);border-radius:3px;transition:width 0.5s;"></div>
+                        </div>
+                    </div>
+                    <!-- Shorts -->
+                    <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:var(--radius-md);padding:16px;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+                            <span style="font-size:18px;">🔴</span>
+                            <span style="font-weight:700;font-size:14px;">Short (SELL)</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div>
+                                <div class="tv-stat-label">Trades</div>
+                                <div style="font-size:20px;font-weight:700;">@shortTrades.Count</div>
+                            </div>
+                            <div>
+                                <div class="tv-stat-label">Win Rate</div>
+                                <div style="font-size:20px;font-weight:700;color:var(--accent-danger);">@shortWR.ToString("N1")%</div>
+                            </div>
+                            <div>
+                                <div class="tv-stat-label">Wins</div>
+                                <div style="font-size:18px;font-weight:600;color:var(--accent-success);">@shortTrades.Count(t => t.Status == "WIN")</div>
+                            </div>
+                            <div>
+                                <div class="tv-stat-label">Net P&L</div>
+                                <div style="font-size:18px;font-weight:600;color:@(shortPnL >= 0 ? "var(--accent-success)" : "var(--accent-danger)");">@(shortPnL >= 0 ? "+" : "")$@shortPnL.ToString("N2")</div>
+                            </div>
+                        </div>
+                        <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;margin-top:12px;overflow:hidden;">
+                            <div style="height:100%;width:@shortWR.ToString("N0")%;background:var(--accent-danger);border-radius:3px;transition:width 0.5s;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- AI Pattern Performance -->
+    var patternTrades = periodTrades.Where(t => !string.IsNullOrEmpty(t.AiDetectedPattern) && t.Status != "PENDING").ToList();
+    var byPattern = patternTrades.GroupBy(t => t.AiDetectedPattern!)
+        .Select(g => new { Pattern = g.Key, Total = g.Count(), Wins = g.Count(t => t.Status == "WIN"),
+                           WR = g.Count(t => t.Status == "WIN") / (double)Math.Max(1, g.Count()) * 100,
+                           PnL = g.Sum(t => t.PnL ?? 0) })
+        .OrderByDescending(x => x.WR).ToList();
+    @if (byPattern.Count > 0)
+    {
+        <div class="tv-card mb-4">
+            <div class="tv-card-header">
+                <span class="tv-card-title">🤖 AI Pattern Performance</span>
+                <span style="font-size:12px;color:var(--text-muted);">Patterns detected by AI Vision from chart screenshots</span>
+            </div>
+            <div class="tv-card-body">
+                <div style="overflow-x:auto;">
+                    <table class="tv-table">
+                        <thead>
+                            <tr>
+                                <th>Pattern</th>
+                                <th>Trades</th>
+                                <th>Wins</th>
+                                <th>Win Rate</th>
+                                <th>Net P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in byPattern)
+                            {
+                                <tr>
+                                    <td>
+                                        <span style="display:inline-flex;align-items:center;gap:6px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.25);border-radius:20px;padding:2px 10px;font-size:12px;font-weight:600;color:#c084fc;">
+                                            📐 @p.Pattern
+                                        </span>
+                                    </td>
+                                    <td style="font-weight:700;">@p.Total</td>
+                                    <td style="color:var(--accent-success);font-weight:600;">@p.Wins</td>
+                                    <td>
+                                        <div style="display:flex;align-items:center;gap:8px;">
+                                            <span style="font-weight:700;color:@(p.WR >= 60 ? "var(--accent-success)" : p.WR >= 40 ? "var(--accent-warning)" : "var(--accent-danger)");">@p.WR.ToString("N0")%</span>
+                                            <div style="width:60px;height:5px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;">
+                                                <div style="height:100%;width:@p.WR.ToString("N0")%;background:@(p.WR >= 60 ? "var(--accent-success)" : p.WR >= 40 ? "var(--accent-warning)" : "var(--accent-danger)");border-radius:2px;"></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="@(p.PnL >= 0 ? "text-success" : "text-danger") font-semibold">@(p.PnL >= 0 ? "+" : "")$@p.PnL.ToString("N2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+
+    <!-- Trade List for Period -->
+    <div class="tv-card">
+        <div class="tv-card-header">
+            <span class="tv-card-title">📋 Trades This @(Period == "weekly" ? "Week" : Period == "monthly" ? "Month" : "Year")</span>
+            <span class="text-muted text-xs">@periodTrades.Count trades</span>
+        </div>
+        <div style="overflow-x:auto;">
+            <table class="tv-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Pair</th>
+                        <th>Direction</th>
+                        <th>Strategy</th>
+                        <th>Session</th>
+                        <th>RR</th>
+                        <th>P&amp;L</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in periodTrades)
+                    {
+                        <tr style="cursor:pointer;" @onclick='() => Nav.NavigateTo("/trades/" + t.Id)'>
+                            <td>@t.Date.ToString("MMM dd")</td>
+                            <td style="font-weight:700;font-family:'Space Grotesk',sans-serif;">@t.Pair</td>
+                            <td><span class="tv-badge @(t.Direction == "BUY" ? "tv-badge-buy" : "tv-badge-sell")">@t.Direction</span></td>
+                            <td class="text-xs">@(t.Strategy ?? "—")</td>
+                            <td class="text-xs text-muted">@(t.Session ?? "—")</td>
+                            <td class="@(t.RRRatio >= 0 ? "text-success" : "text-danger")">@(t.RRRatio.HasValue ? (t.RRRatio >= 0 ? "+" : "") + t.RRRatio.Value.ToString("N2") + "R" : "—")</td>
+                            <td class="@(t.PnL >= 0 ? "text-success" : "text-danger")">@(t.PnL.HasValue ? (t.PnL >= 0 ? "+" : "-") + "$" + Math.Abs(t.PnL.Value).ToString("N2") : "—")</td>
+                            <td><span class="tv-badge tv-badge-@t.Status.ToLower()">@t.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Trade> allTrades = [];
+    private List<Trade> periodTrades = [];
+    private bool loading = true;
+
+    private string Period => Nav.Uri.Contains("weekly") ? "weekly" : Nav.Uri.Contains("yearly") ? "yearly" : "monthly";
+
+    private double periodWinRate => periodTrades.Count(t => t.Status != "PENDING") > 0
+        ? (double)periodTrades.Count(t => t.Status == "WIN") / periodTrades.Count(t => t.Status != "PENDING") * 100 : 0;
+    private decimal periodPnL => periodTrades.Sum(t => t.PnL ?? 0);
+    private decimal periodRR => periodTrades.Sum(t => t.RRRatio ?? 0);
+    private decimal periodAvgRR => periodTrades.Count(t => t.RRRatio.HasValue) > 0 ? periodTrades.Where(t => t.RRRatio.HasValue).Average(t => t.RRRatio!.Value) : 0;
+    private decimal bestTrade => periodTrades.Any() ? periodTrades.Max(t => t.PnL ?? 0) : 0;
+    private decimal worstTrade => periodTrades.Any() ? periodTrades.Min(t => t.PnL ?? 0) : 0;
+    private decimal periodPF
+    {
+        get
+        {
+            var profit = periodTrades.Where(t => t.Status == "WIN").Sum(t => t.PnL ?? 0);
+            var loss = Math.Abs(periodTrades.Where(t => t.Status == "LOSS").Sum(t => t.PnL ?? 0));
+            return loss > 0 ? Math.Round(profit / loss, 2) : profit;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        allTrades = await TradeService.GetTradesAsync(userId);
+        FilterByPeriod();
+        loading = false;
+    }
+
+    protected override void OnParametersSet()
+    {
+        FilterByPeriod();
+    }
+
+    private void FilterByPeriod()
+    {
+        var now = DateTime.UtcNow;
+        periodTrades = Period switch
+        {
+            "weekly" => allTrades.Where(t => t.Date >= now.AddDays(-(int)now.DayOfWeek)).ToList(),
+            "yearly" => allTrades.Where(t => t.Date.Year == now.Year).ToList(),
+            _ => allTrades.Where(t => t.Date.Year == now.Year && t.Date.Month == now.Month).ToList()
+        };
+    }
+}

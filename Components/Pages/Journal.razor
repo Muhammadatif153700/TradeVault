@@ -1,0 +1,277 @@
+@page "/journal"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Journal — TradeVault</PageTitle>
+
+<div class="tv-section-header mb-4">
+    <div>
+        <div class="tv-section-title">📝 Trading Journal</div>
+        <div class="tv-section-sub">Reflect, review, and grow as a trader</div>
+    </div>
+    <button class="tv-btn tv-btn-primary" @onclick="OpenNew">➕ New Entry</button>
+</div>
+
+<!-- Entry Form Modal -->
+@if (showForm)
+{
+    <div class="tv-modal-overlay" @onclick="CloseForm">
+        <div class="tv-modal" style="max-width:700px;" @onclick:stopPropagation="true">
+            <div class="tv-modal-header">
+                <span class="tv-modal-title">@(editEntry == null ? "📝 New Journal Entry" : "✏️ Edit Entry")</span>
+                <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="CloseForm">✕</button>
+            </div>
+            <div class="tv-modal-body">
+                <div class="tv-form-grid-2 mb-4">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Entry Type</label>
+                        <select class="tv-select" @bind="form.Type">
+                            <option>DAILY</option>
+                            <option>WEEKLY</option>
+                            <option>MONTHLY</option>
+                        </select>
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Date</label>
+                        <input type="date" class="tv-input" @bind="form.Date" />
+                    </div>
+                </div>
+                <div class="tv-form-group">
+                    <label class="tv-label">📋 Session Notes</label>
+                    <textarea class="tv-textarea" @bind="form.Notes" placeholder="What happened today? Market conditions, setup quality..." style="min-height:100px;"></textarea>
+                </div>
+                <div class="tv-form-group">
+                    <label class="tv-label">🧠 Psychology &amp; Mindset</label>
+                    <textarea class="tv-textarea" @bind="form.Psychology" placeholder="How were you feeling? Stress levels, focus quality..." style="min-height:80px;"></textarea>
+                </div>
+                <div class="tv-form-grid-2">
+                    <div class="tv-form-group">
+                        <label class="tv-label">⚠️ Mistakes Made</label>
+                        <textarea class="tv-textarea" @bind="form.Mistakes" placeholder="Rule breaks, emotional trades..." style="min-height:80px;"></textarea>
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">💡 Lessons Learned</label>
+                        <textarea class="tv-textarea" @bind="form.Lessons" placeholder="What would you do differently?" style="min-height:80px;"></textarea>
+                    </div>
+                </div>
+                <div class="tv-form-grid-2">
+                    <div class="tv-form-group">
+                        <label class="tv-label">🏆 Wins &amp; Positives</label>
+                        <textarea class="tv-textarea" @bind="form.Wins" placeholder="What went well today?" style="min-height:80px;"></textarea>
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">🎯 Goals for Tomorrow</label>
+                        <textarea class="tv-textarea" @bind="form.Goals" placeholder="Specific goals and intentions..." style="min-height:80px;"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="tv-modal-footer">
+                <button class="tv-btn tv-btn-ghost" @onclick="CloseForm">Cancel</button>
+                <button class="tv-btn tv-btn-primary" @onclick="SaveEntry" disabled="@saving">
+                    @(saving ? "⏳ Saving..." : "💾 Save Entry")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- View Entry Modal -->
+@if (viewEntry != null)
+{
+    <div class="tv-modal-overlay" @onclick="() => viewEntry = null">
+        <div class="tv-modal" style="max-width:680px;" @onclick:stopPropagation="true">
+            <div class="tv-modal-header">
+                <div>
+                    <span class="tv-modal-title">@TypeEmoji(viewEntry.Type) @viewEntry.Date.ToString("MMMM dd, yyyy")</span>
+                    <span class="tv-badge tv-badge-breakeven" style="margin-left:10px;">@viewEntry.Type</span>
+                </div>
+                <div class="flex gap-2">
+                    <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="EditCurrentViewEntry">✏️ Edit</button>
+                    <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="() => viewEntry = null">✕</button>
+                </div>
+            </div>
+            <div class="tv-modal-body">
+                @if (!string.IsNullOrEmpty(viewEntry.Notes))
+                {
+                    <div class="mb-4">
+                        <div class="tv-stat-label mb-1">Session Notes</div>
+                        <p style="line-height:1.7;color:var(--text-secondary);">@viewEntry.Notes</p>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(viewEntry.Psychology))
+                {
+                    <div class="mb-4">
+                        <div class="tv-stat-label mb-1">🧠 Psychology</div>
+                        <p style="line-height:1.7;color:var(--text-secondary);">@viewEntry.Psychology</p>
+                    </div>
+                }
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                    @if (!string.IsNullOrEmpty(viewEntry.Wins))
+                    {
+                        <div>
+                            <div class="tv-stat-label mb-1">🏆 Wins</div>
+                            <p class="text-success text-sm">@viewEntry.Wins</p>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(viewEntry.Mistakes))
+                    {
+                        <div>
+                            <div class="tv-stat-label mb-1">⚠️ Mistakes</div>
+                            <p class="text-danger text-sm">@viewEntry.Mistakes</p>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(viewEntry.Lessons))
+                    {
+                        <div>
+                            <div class="tv-stat-label mb-1">💡 Lessons</div>
+                            <p class="text-sm" style="color:var(--text-secondary);">@viewEntry.Lessons</p>
+                        </div>
+                    }
+                    @if (!string.IsNullOrEmpty(viewEntry.Goals))
+                    {
+                        <div>
+                            <div class="tv-stat-label mb-1">🎯 Goals</div>
+                            <p class="text-sm" style="color:var(--accent-primary);">@viewEntry.Goals</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Journal Entries -->
+@if (loading)
+{
+    <div class="text-muted animate-pulse">Loading journal...</div>
+}
+else if (entries.Count == 0)
+{
+    <div class="tv-card" style="text-align:center;padding:60px;">
+        <div style="font-size:48px;margin-bottom:12px;">📔</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:8px;">No journal entries yet</div>
+        <div class="text-muted mb-4">Start reflecting on your trading journey</div>
+        <button class="tv-btn tv-btn-primary" @onclick="OpenNew">➕ Write First Entry</button>
+    </div>
+}
+else
+{
+    <div class="tv-tabs mb-4" style="max-width:400px;">
+        <button class="tv-tab @(typeFilter == "ALL" ? "active" : "")" @onclick='() => typeFilter = "ALL"'>All</button>
+        <button class="tv-tab @(typeFilter == "DAILY" ? "active" : "")" @onclick='() => typeFilter = "DAILY"'>Daily</button>
+        <button class="tv-tab @(typeFilter == "WEEKLY" ? "active" : "")" @onclick='() => typeFilter = "WEEKLY"'>Weekly</button>
+        <button class="tv-tab @(typeFilter == "MONTHLY" ? "active" : "")" @onclick='() => typeFilter = "MONTHLY"'>Monthly</button>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px;">
+        @foreach (var entry in entries.Where(e => typeFilter == "ALL" || e.Type == typeFilter))
+        {
+            <div class="tv-card" style="cursor:pointer;transition:var(--transition);" @onclick="() => viewEntry = entry">
+                <div class="tv-card-body" style="display:flex;gap:16px;align-items:flex-start;">
+                    <div style="font-size:28px;width:44px;height:44px;background:var(--bg-card);border:1px solid var(--glass-border);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;flex-shrink:0;">@TypeEmoji(entry.Type)</div>
+                    <div style="flex:1;min-width:0;">
+                        <div class="flex justify-between mb-1">
+                            <div>
+                                <span style="font-size:14px;font-weight:700;">@entry.Date.ToString("MMMM dd, yyyy")</span>
+                                <span class="tv-badge tv-badge-breakeven" style="margin-left:8px;">@entry.Type</span>
+                            </div>
+                            <span class="text-xs text-muted">@entry.Date.ToString("ddd")</span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(entry.Notes))
+                        {
+                            <p class="text-sm text-muted" style="overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">@entry.Notes</p>
+                        }
+                        <div class="flex gap-3 mt-2">
+                            @if (!string.IsNullOrEmpty(entry.Wins)) { <span class="text-xs text-success">✅ Wins</span> }
+                            @if (!string.IsNullOrEmpty(entry.Mistakes)) { <span class="text-xs text-danger">⚠️ Mistakes</span> }
+                            @if (!string.IsNullOrEmpty(entry.Lessons)) { <span class="text-xs" style="color:var(--accent-primary);">💡 Lessons</span> }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<JournalEntry> entries = [];
+    private bool loading = true;
+    private bool saving = false;
+    private bool showForm = false;
+    private string typeFilter = "ALL";
+    private string userId = "";
+    private JournalEntry? editEntry;
+    private JournalEntry? viewEntry;
+    private JournalEntry form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        entries = await TradeService.GetJournalEntriesAsync(userId);
+        loading = false;
+    }
+
+    private void OpenNew()
+    {
+        editEntry = null;
+        form = new JournalEntry { Date = DateTime.Today };
+        showForm = true;
+    }
+
+    private void OpenEdit(JournalEntry entry)
+    {
+        editEntry = entry;
+        form = new JournalEntry
+        {
+            Type = entry.Type, Date = entry.Date, Notes = entry.Notes, Psychology = entry.Psychology,
+            Mistakes = entry.Mistakes, Lessons = entry.Lessons, Wins = entry.Wins, Goals = entry.Goals
+        };
+        showForm = true;
+    }
+
+    private void CloseForm() { showForm = false; editEntry = null; }
+
+    private void EditCurrentViewEntry()
+    {
+        if (viewEntry != null)
+        {
+            OpenEdit(viewEntry);
+            viewEntry = null;
+        }
+    }
+
+    private async Task SaveEntry()
+    {
+        saving = true;
+        form.UserId = userId;
+        if (editEntry != null)
+        {
+            editEntry.Type = form.Type; editEntry.Date = form.Date; editEntry.Notes = form.Notes;
+            editEntry.Psychology = form.Psychology; editEntry.Mistakes = form.Mistakes;
+            editEntry.Lessons = form.Lessons; editEntry.Wins = form.Wins; editEntry.Goals = form.Goals;
+            await TradeService.UpdateJournalEntryAsync(editEntry);
+        }
+        else
+        {
+            var created = await TradeService.CreateJournalEntryAsync(form);
+            entries.Insert(0, created);
+        }
+        CloseForm();
+        entries = await TradeService.GetJournalEntriesAsync(userId);
+        saving = false;
+    }
+
+    private string TypeEmoji(string type) => type switch
+    {
+        "DAILY" => "📅",
+        "WEEKLY" => "📆",
+        "MONTHLY" => "🗓️",
+        _ => "📝"
+    };
+}

@@ -1,0 +1,198 @@
+@page "/Account/Register"
+
+@using System.ComponentModel.DataAnnotations
+@using System.Text
+@using System.Text.Encodings.Web
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using TradeVault.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IUserStore<ApplicationUser> UserStore
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IEmailSender<ApplicationUser> EmailSender
+@inject ILogger<Register> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Register — TradeVault</PageTitle>
+
+<div class="tv-auth-wrapper">
+    <!-- Left Panel: Graphic/Trading Quote -->
+    <div class="tv-auth-panel-left">
+        <div class="tv-auth-panel-glow"></div>
+        <div class="tv-auth-panel-content">
+            <div class="tv-auth-logo-large">
+                <span class="logo-icon">📈</span>
+                <span class="logo-text">TradeVault</span>
+            </div>
+            
+            <div class="tv-auth-quote-box">
+                <div class="quote-mark">“</div>
+                <p class="quote-text">Patience, discipline, and execution are the pillars of the elite trader.</p>
+                <div class="quote-author">— Trading Axiom</div>
+            </div>
+            
+            <div class="tv-auth-benefits">
+                <div class="benefit-item">
+                    <span class="benefit-icon">📊</span>
+                    <div>
+                        <div class="benefit-title">Comprehensive Analytics</div>
+                        <div class="benefit-desc">Track win rate, profit factor, expectancy, and performance metrics.</div>
+                    </div>
+                </div>
+                <div class="benefit-item">
+                    <span class="benefit-icon">📝</span>
+                    <div>
+                        <div class="benefit-title">Journal &amp; Reflect</div>
+                        <div class="benefit-desc">Keep detailed notes on your market execution and mindset.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="tv-auth-panel-footer">
+            © 2026 TradeVault. Empowering Disciplined Traders.
+        </div>
+    </div>
+    
+    <!-- Right Panel: Form -->
+    <div class="tv-auth-panel-right">
+        <div class="tv-auth-form-card">
+            <!-- Form Header -->
+            <div class="form-header">
+                <h2>Create Account</h2>
+                <p>Register to start logging your trades</p>
+            </div>
+            
+            <StatusMessage Message="@Message" />
+            
+            <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
+                <DataAnnotationsValidator />
+                
+                <ValidationSummary class="text-danger mb-3" role="alert" />
+                
+                <div class="tv-form-group">
+                    <label for="Input.Email" class="tv-label">Email Address</label>
+                    <InputText @bind-Value="Input.Email" id="Input.Email" class="tv-input" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                    <ValidationMessage For="() => Input.Email" class="text-danger" />
+                </div>
+                
+                <div class="tv-form-group">
+                    <label for="Input.Password" class="tv-label">Password</label>
+                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="tv-input" autocomplete="new-password" aria-required="true" placeholder="••••••••" />
+                    <ValidationMessage For="() => Input.Password" class="text-danger" />
+                </div>
+                
+                <div class="tv-form-group">
+                    <label for="Input.ConfirmPassword" class="tv-label">Confirm Password</label>
+                    <InputText type="password" @bind-Value="Input.ConfirmPassword" id="Input.ConfirmPassword" class="tv-input" autocomplete="new-password" aria-required="true" placeholder="••••••••" />
+                    <ValidationMessage For="() => Input.ConfirmPassword" class="text-danger" />
+                </div>
+                
+                <button type="submit" class="tv-btn tv-btn-primary w-full" style="justify-content:center; padding:12px; font-size:14px; margin-top:8px;">Register</button>
+                
+                <div style="text-align:center; margin-top:24px; font-size:13.5px; color:var(--text-secondary);">
+                    Already have an account? 
+                    <a href="Account/Login" style="color:var(--accent-primary); font-weight:600; margin-left:4px;">Login here</a>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    private IEnumerable<IdentityError>? identityErrors;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? Message => identityErrors is null ? null : $"Error: {string.Join(", ", identityErrors.Select(error => error.Description))}";
+
+    protected override void OnInitialized()
+    {
+        Input ??= new();
+    }
+
+    public async Task RegisterUser(EditContext editContext)
+    {
+        var user = CreateUser();
+
+        await UserStore.SetUserNameAsync(user, Input.Email, CancellationToken.None);
+        var emailStore = GetEmailStore();
+        await emailStore.SetEmailAsync(user, Input.Email, CancellationToken.None);
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (!result.Succeeded)
+        {
+            identityErrors = result.Errors;
+            return;
+        }
+
+        Logger.LogInformation("User created a new account with password.");
+
+        var userId = await UserManager.GetUserIdAsync(user);
+        var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+        code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+        var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+            NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+            new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code, ["returnUrl"] = ReturnUrl });
+
+        await EmailSender.SendConfirmationLinkAsync(user, Input.Email, HtmlEncoder.Default.Encode(callbackUrl));
+
+        if (UserManager.Options.SignIn.RequireConfirmedAccount)
+        {
+            RedirectManager.RedirectTo(
+                "Account/RegisterConfirmation",
+                new() { ["email"] = Input.Email, ["returnUrl"] = ReturnUrl });
+        }
+        else
+        {
+            await SignInManager.SignInAsync(user, isPersistent: false);
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+    }
+
+    private ApplicationUser CreateUser()
+    {
+        try
+        {
+            return Activator.CreateInstance<ApplicationUser>();
+        }
+        catch
+        {
+            throw new InvalidOperationException($"Can't create an instance of '{nameof(ApplicationUser)}'. " +
+                $"Ensure that '{nameof(ApplicationUser)}' is not an abstract class and has a parameterless constructor.");
+        }
+    }
+
+    private IUserEmailStore<ApplicationUser> GetEmailStore()
+    {
+        if (!UserManager.SupportsUserEmail)
+        {
+            throw new NotSupportedException("The default UI requires a user store with email support.");
+        }
+        return (IUserEmailStore<ApplicationUser>)UserStore;
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        [Display(Name = "Email")]
+        public string Email { get; set; } = "";
+
+        [Required]
+        [StringLength(100, ErrorMessage = "The {0} must be at least {2} and at max {1} characters long.", MinimumLength = 6)]
+        [DataType(DataType.Password)]
+        [Display(Name = "Password")]
+        public string Password { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        [Display(Name = "Confirm password")]
+        [Compare("Password", ErrorMessage = "The password and confirmation password do not match.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

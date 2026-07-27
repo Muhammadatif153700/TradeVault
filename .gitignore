@@ -1,0 +1,20 @@
+## Ignore Visual Studio, MSBuild, and .NET temporary files
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.userosscache
+*.sln.docstates
+
+## Ignore SQLite DB data files
+Data/app.db
+Data/app.db-shm
+Data/app.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+## OS files
+.DS_Store
+Thumbs.db

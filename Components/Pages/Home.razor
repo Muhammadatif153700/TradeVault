@@ -1,0 +1,275 @@
+@page "/"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Dashboard — TradeVault</PageTitle>
+
+@if (loading)
+{
+    <div class="flex items-center justify-center" style="min-height:400px;">
+        <div class="text-muted animate-pulse" style="font-size:18px;">Loading dashboard...</div>
+    </div>
+}
+else if (stats != null)
+{
+    <div class="tv-section-header mb-4">
+        <div>
+            <div class="tv-section-title">📊 Dashboard</div>
+            <div class="tv-section-sub">Welcome back, @userName — here's your trading snapshot</div>
+        </div>
+        <a href="/trades/new" class="tv-btn tv-btn-primary">➕ Log Trade</a>
+    </div>
+
+    <!-- Top Stats -->
+    <div class="tv-stat-grid">
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">💰</div>
+            <div class="tv-stat-label">Net P&amp;L</div>
+            <div class="tv-stat-value @(stats.NetPnL >= 0 ? "positive" : "negative")">@(stats.NetPnL >= 0 ? "+" : "")$@stats.NetPnL.ToString("N2")</div>
+            <div class="tv-stat-sub">All time</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">🎯</div>
+            <div class="tv-stat-label">Win Rate</div>
+            <div class="tv-stat-value neutral">@stats.WinRate.ToString("N1")%</div>
+            <div class="tv-stat-sub">@stats.Wins W / @stats.Losses L / @stats.Breakevens BE</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">⚡</div>
+            <div class="tv-stat-label">Net RR</div>
+            <div class="tv-stat-value @(stats.NetRR >= 0 ? "positive" : "negative")">@(stats.NetRR >= 0 ? "+" : "")@stats.NetRR.ToString("N2")R</div>
+            <div class="tv-stat-sub">Week: @(stats.WeeklyRR >= 0 ? "+" : "")@stats.WeeklyRR.ToString("N1")R | Month: @(stats.MonthlyRR >= 0 ? "+" : "")@stats.MonthlyRR.ToString("N1")R</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">📈</div>
+            <div class="tv-stat-label">Avg RR</div>
+            <div class="tv-stat-value neutral">@stats.AvgRR.ToString("N2")R</div>
+            <div class="tv-stat-sub">Per closed trade</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">🏆</div>
+            <div class="tv-stat-label">Profit Factor</div>
+            <div class="tv-stat-value @(stats.ProfitFactor >= 1.5m ? "positive" : stats.ProfitFactor < 1 ? "negative" : "neutral")">@stats.ProfitFactor.ToString("N2")</div>
+            <div class="tv-stat-sub">Expectancy: $@stats.Expectancy.ToString("N2")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">🔥</div>
+            <div class="tv-stat-label">Streak</div>
+            <div class="tv-stat-value @(stats.CurrentWinStreak > 0 ? "positive" : stats.CurrentLoseStreak > 0 ? "negative" : "neutral")">
+                @if (stats.CurrentWinStreak > 0) { <span>@stats.CurrentWinStreak W 🏅</span> }
+                else if (stats.CurrentLoseStreak > 0) { <span>@stats.CurrentLoseStreak L ⚠️</span> }
+                else { <span>—</span> }
+            </div>
+            <div class="tv-stat-sub">Current streak</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">📉</div>
+            <div class="tv-stat-label">Max Drawdown</div>
+            <div class="tv-stat-value negative">-@stats.MaxDrawdown.ToString("N2")%</div>
+            <div class="tv-stat-sub">Largest: -$@stats.LargestLoss.ToString("N2")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">📋</div>
+            <div class="tv-stat-label">Total Trades</div>
+            <div class="tv-stat-value neutral">@stats.TotalTrades</div>
+            <div class="tv-stat-sub">Best win: +$@stats.LargestWin.ToString("N2")</div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid-2 mb-6">
+        <!-- Equity Curve -->
+        <div class="tv-card">
+            <div class="tv-card-header">
+                <span class="tv-card-title">📈 Equity Curve</span>
+                <span class="tv-badge tv-badge-win">+$@stats.NetPnL.ToString("N0")</span>
+            </div>
+            <div class="tv-card-body">
+                @if (stats.EquityCurve.Count > 1)
+                {
+                    <div style="height:180px; position:relative;">
+                        <svg viewBox="0 0 600 180" style="width:100%;height:100%;" preserveAspectRatio="none">
+                            <defs>
+                                <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stop-color="@(stats.NetPnL >= 0 ? "#10b981" : "#ef4444")" stop-opacity="0.3"/>
+                                    <stop offset="100%" stop-color="@(stats.NetPnL >= 0 ? "#10b981" : "#ef4444")" stop-opacity="0"/>
+                                </linearGradient>
+                            </defs>
+                            @{
+                                var eqMin = stats.EquityCurve.Min(p => p.Equity);
+                                var eqMax = stats.EquityCurve.Max(p => p.Equity);
+                                var eqRange = eqMax - eqMin;
+                                if (eqRange == 0) eqRange = 1;
+                                var pts = stats.EquityCurve.Select((p, i) =>
+                                {
+                                    var x = 600.0 * i / (stats.EquityCurve.Count - 1);
+                                    var y = 160.0 - 140.0 * (double)(p.Equity - eqMin) / (double)eqRange + 10;
+                                    return $"{x:F1},{y:F1}";
+                                }).ToList();
+                                var polyline = string.Join(" ", pts);
+                                var firstPt = pts.First().Split(',');
+                                var lastPt = pts.Last().Split(',');
+                                var fillPath = $"M {firstPt[0]} 170 L {polyline.Replace(" ", " L ")} L {lastPt[0]} 170 Z";
+                            }
+                            <path d="@fillPath" fill="url(#eqGrad)" />
+                            <polyline points="@polyline" fill="none" stroke="@(stats.NetPnL >= 0 ? "#10b981" : "#ef4444")" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+                        </svg>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-muted text-sm" style="height:180px;display:flex;align-items:center;justify-content:center;">No completed trades yet</div>
+                }
+            </div>
+        </div>
+
+        <!-- Daily P&L Bar Chart -->
+        <div class="tv-card">
+            <div class="tv-card-header">
+                <span class="tv-card-title">📊 Daily P&amp;L</span>
+                <span class="text-muted text-xs">Last 30 days</span>
+            </div>
+            <div class="tv-card-body">
+                @if (stats.DailyPnLData.Count > 0)
+                {
+                    <div style="height:180px;display:flex;align-items:flex-end;gap:3px;padding-top:10px;">
+                        @{
+                            var dMax = stats.DailyPnLData.Max(d => Math.Abs((double)d.PnL));
+                            if (dMax == 0) dMax = 1;
+                            var shown = stats.DailyPnLData.TakeLast(30).ToList();
+                        }
+                        @foreach (var d in shown)
+                        {
+                            var pct = Math.Min(100.0, Math.Abs((double)d.PnL) / dMax * 160);
+                            var isPos = d.PnL >= 0;
+                            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:160px;gap:0;">
+                                @if (isPos)
+                                {
+                                    <div title="@d.Date: +$@d.PnL.ToString("N2")" style="width:100%;background:rgba(16,185,129,0.7);border-radius:2px 2px 0 0;height:@(pct)px;min-height:2px;transition:all 0.3s;cursor:pointer;" class="bar-hover"></div>
+                                }
+                                else
+                                {
+                                    <div title="@d.Date: -$@Math.Abs(d.PnL).ToString("N2")" style="width:100%;background:rgba(239,68,68,0.7);border-radius:2px 2px 0 0;height:@(pct)px;min-height:2px;transition:all 0.3s;cursor:pointer;" class="bar-hover"></div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="text-muted text-sm" style="height:180px;display:flex;align-items:center;justify-content:center;">No data yet</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Trades + Monthly Performance -->
+    <div class="grid-2">
+        <!-- Recent Trades -->
+        <div class="tv-card">
+            <div class="tv-card-header">
+                <span class="tv-card-title">🕐 Recent Trades</span>
+                <a href="/trades" class="tv-btn tv-btn-ghost tv-btn-sm">View All</a>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="tv-table">
+                    <thead>
+                        <tr>
+                            <th>Pair</th>
+                            <th>Direction</th>
+                            <th>RR</th>
+                            <th>P&amp;L</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (recentTrades.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" style="text-align: center; padding: 40px 20px; color: var(--text-muted);">
+                                    <div style="font-size: 28px; margin-bottom: 10px;">📈</div>
+                                    <div style="font-weight: 600; color: var(--text-secondary); margin-bottom: 4px;">No Trades Logged Yet</div>
+                                    <div style="font-size: 12.5px; margin-bottom: 12px;">Start tracking your confluences and performance metrics.</div>
+                                    <a href="/trades/new" class="tv-btn tv-btn-primary tv-btn-sm" style="display: inline-flex; font-size: 12px; padding: 6px 16px;">Log First Trade</a>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var t in recentTrades)
+                            {
+                                <tr style="cursor:pointer;" @onclick='() => Nav.NavigateTo("/trades/" + t.Id)'>
+                                    <td>
+                                        <div style="font-weight:600;">@t.Pair</div>
+                                        <div class="text-xs text-muted">@t.Date.ToString("MMM dd")</div>
+                                    </td>
+                                    <td><span class="tv-badge @(t.Direction == "BUY" ? "tv-badge-buy" : "tv-badge-sell")">@t.Direction</span></td>
+                                    <td class="@(t.RRRatio >= 0 ? "text-success" : "text-danger")">@(t.RRRatio.HasValue ? (t.RRRatio >= 0 ? "+" : "") + t.RRRatio.Value.ToString("N2") + "R" : "—")</td>
+                                    <td class="@(t.PnL >= 0 ? "text-success" : "text-danger")">@(t.PnL.HasValue ? (t.PnL >= 0 ? "+" : "") + "$" + Math.Abs(t.PnL.Value).ToString("N2") : "—")</td>
+                                    <td><span class="tv-badge tv-badge-@t.Status.ToLower()">@t.Status</span></td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Monthly Performance -->
+        <div class="tv-card">
+            <div class="tv-card-header">
+                <span class="tv-card-title">📆 Monthly Performance</span>
+            </div>
+            <div class="tv-card-body">
+                @if (stats.MonthlyData.Count > 0)
+                {
+                    @foreach (var m in stats.MonthlyData.TakeLast(6).Reverse())
+                    {
+                        <div style="margin-bottom:14px;">
+                            <div class="flex justify-between mb-1">
+                                <span style="font-size:12.5px;font-weight:600;">@m.Month</span>
+                                <div class="flex gap-3">
+                                    <span class="text-xs text-muted">@m.WinRate.ToString("N0")% WR</span>
+                                    <span class="text-xs @(m.PnL >= 0 ? "text-success" : "text-danger") font-semibold">@(m.PnL >= 0 ? "+" : "")$@m.PnL.ToString("N2")</span>
+                                </div>
+                            </div>
+                            <div class="tv-progress">
+                                <div class="tv-progress-bar @(m.PnL >= 0 ? "success" : "danger")" style="width:@Math.Min(100, Math.Abs((double)m.PnL / 500 * 100))%"></div>
+                            </div>
+                            <div class="text-xs text-muted mt-1">@m.Trades trades</div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-muted text-sm">No monthly data yet</div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Inject] NavigationManager Nav { get; set; } = default!;
+
+    private DashboardStats? stats;
+    private List<Trade> recentTrades = [];
+    private bool loading = true;
+    private string userName = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        userName = user.Identity?.Name?.Split('@')[0] ?? "Trader";
+        stats = await TradeService.GetDashboardStatsAsync(userId);
+        recentTrades = await TradeService.GetTradesAsync(userId, 8);
+        loading = false;
+    }
+}

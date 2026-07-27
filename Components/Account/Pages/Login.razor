@@ -1,0 +1,212 @@
+@page "/Account/Login"
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authentication
+@using Microsoft.AspNetCore.Identity
+@using TradeVault.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ILogger<Login> Logger
+@inject NavigationManager NavigationManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Log in — TradeVault</PageTitle>
+
+<div class="tv-auth-wrapper">
+    <!-- Left Panel: Graphic/Trading Quote -->
+    <div class="tv-auth-panel-left">
+        <div class="tv-auth-panel-glow"></div>
+        <div class="tv-auth-panel-content">
+            <div class="tv-auth-logo-large">
+                <span class="logo-icon">📈</span>
+                <span class="logo-text">TradeVault</span>
+            </div>
+            
+            <div class="tv-auth-quote-box">
+                <div class="quote-mark">“</div>
+                <p class="quote-text">The goal of a successful trader is to make the best trades. Money is secondary.</p>
+                <div class="quote-author">— Alexander Elder</div>
+            </div>
+            
+            <div class="tv-auth-benefits">
+                <div class="benefit-item">
+                    <span class="benefit-icon">🎯</span>
+                    <div>
+                        <div class="benefit-title">Rule-Based Trading</div>
+                        <div class="benefit-desc">Track confluences, define and enforce trading goals.</div>
+                    </div>
+                </div>
+                <div class="benefit-item">
+                    <span class="benefit-icon">🧠</span>
+                    <div>
+                        <div class="benefit-title">Psychology &amp; Review</div>
+                        <div class="benefit-desc">Record emotional states and master your execution.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="tv-auth-panel-footer">
+            © 2026 TradeVault. Empowering Disciplined Traders.
+        </div>
+    </div>
+    
+    <!-- Right Panel: Form -->
+    <div class="tv-auth-panel-right">
+        <div class="tv-auth-form-card">
+            <!-- Form Header -->
+            <div class="form-header">
+                <h2>Welcome Back</h2>
+                <p>Log in to access your trading dashboard</p>
+            </div>
+            
+            <!-- Demo Account Hint -->
+            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 12px 16px; margin-bottom: 20px;">
+                <div style="font-size: 12.5px; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 6px;">
+                    <span>⚡</span> <span>DEMO ACCOUNT CREATED</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                    Email: <code style="color:#10b981; background:rgba(0,0,0,0.2); padding:2px 6px; border-radius:4px;">demo@tradevault.com</code><br/>
+                    Password: <code style="color:#10b981; background:rgba(0,0,0,0.2); padding:2px 6px; border-radius:4px;">Demo@1234!</code>
+                </div>
+            </div>
+
+            <StatusMessage Message="@errorMessage" />
+            
+            <EditForm EditContext="editContext" method="post" OnSubmit="LoginUser" FormName="login">
+                <DataAnnotationsValidator />
+                
+                <ValidationSummary class="text-danger mb-3" role="alert" />
+                
+                <div class="tv-form-group">
+                    <label for="Input.Email" class="tv-label">Email Address</label>
+                    <InputText @bind-Value="Input.Email" id="Input.Email" class="tv-input" autocomplete="username webauthn" aria-required="true" placeholder="name@example.com" />
+                    <ValidationMessage For="() => Input.Email" class="text-danger" />
+                </div>
+                
+                <div class="tv-form-group">
+                    <label for="Input.Password" class="tv-label">Password</label>
+                    <InputText type="password" @bind-Value="Input.Password" id="Input.Password" class="tv-input" autocomplete="current-password" aria-required="true" placeholder="••••••••" />
+                    <ValidationMessage For="() => Input.Password" class="text-danger" />
+                </div>
+                
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--text-secondary);">
+                        <InputCheckbox @bind-Value="Input.RememberMe" style="accent-color:var(--accent-primary);" />
+                        Remember me
+                    </label>
+                    <a href="Account/ForgotPassword" style="font-size:13px; color:var(--accent-primary);">Forgot password?</a>
+                </div>
+                
+                <button type="submit" class="tv-btn tv-btn-primary w-full" style="justify-content:center; padding:12px; font-size:14px;">Log In</button>
+                
+                <div style="display:flex; align-items:center; justify-content:center; margin:20px 0; gap:10px;">
+                    <div style="flex:1; height:1px; background:var(--glass-border);"></div>
+                    <span style="font-size:12px; color:var(--text-muted);">OR</span>
+                    <div style="flex:1; height:1px; background:var(--glass-border);"></div>
+                </div>
+                
+                <PasskeySubmit Operation="PasskeyOperation.Request" Name="Input.Passkey" EmailName="Input.Email" class="tv-btn tv-btn-ghost w-full" style="justify-content:center; padding:10px; font-size:13px;">
+                    🔑 Log in with passkey
+                </PasskeySubmit>
+                
+                <div style="text-align:center; margin-top:24px; font-size:13.5px; color:var(--text-secondary);">
+                    Don't have an account? 
+                    <a href="@(NavigationManager.GetUriWithQueryParameters("Account/Register", new Dictionary<string, object?> { ["ReturnUrl"] = ReturnUrl }))" style="color:var(--accent-primary); font-weight:600; margin-left:4px;">Register here</a>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? errorMessage;
+    private EditContext editContext = default!;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private InputModel Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+
+        editContext = new EditContext(Input);
+
+        if (HttpMethods.IsGet(HttpContext.Request.Method))
+        {
+            // Clear the existing external cookie to ensure a clean login process
+            await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+        }
+    }
+
+    public async Task LoginUser()
+    {
+        if (!string.IsNullOrEmpty(Input.Passkey?.Error))
+        {
+            errorMessage = $"Error: {Input.Passkey.Error}";
+            return;
+        }
+
+        SignInResult result;
+        if (!string.IsNullOrEmpty(Input.Passkey?.CredentialJson))
+        {
+            // When performing passkey sign-in, don't perform form validation.
+            result = await SignInManager.PasskeySignInAsync(Input.Passkey.CredentialJson);
+        }
+        else
+        {
+            // If doing a password sign-in, validate the form.
+            if (!editContext.Validate())
+            {
+                return;
+            }
+
+            // This doesn't count login failures towards account lockout
+            // To enable password failures to trigger account lockout, set lockoutOnFailure: true
+            result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+        }
+
+        if (result.Succeeded)
+        {
+            Logger.LogInformation("User logged in.");
+            RedirectManager.RedirectTo(ReturnUrl);
+        }
+        else if (result.RequiresTwoFactor)
+        {
+            RedirectManager.RedirectTo(
+                "Account/LoginWith2fa",
+                new() { ["returnUrl"] = ReturnUrl, ["rememberMe"] = Input.RememberMe });
+        }
+        else if (result.IsLockedOut)
+        {
+            Logger.LogWarning("User account locked out.");
+            RedirectManager.RedirectTo("Account/Lockout");
+        }
+        else
+        {
+            errorMessage = "Error: Invalid login attempt.";
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [Display(Name = "Remember me?")]
+        public bool RememberMe { get; set; }
+
+        public PasskeyInputModel? Passkey { get; set; }
+    }
+}

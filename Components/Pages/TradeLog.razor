@@ -1,0 +1,225 @@
+@page "/trades"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Trade Log — TradeVault</PageTitle>
+
+<div class="tv-section-header mb-4">
+    <div>
+        <div class="tv-section-title">📋 Trade Log</div>
+        <div class="tv-section-sub">@filtered.Count trades @(filterStatus != "ALL" || !string.IsNullOrEmpty(filterPair) ? "(filtered)" : "")</div>
+    </div>
+    <a href="/trades/new" class="tv-btn tv-btn-primary">➕ New Trade</a>
+</div>
+
+<!-- Filters -->
+<div class="tv-card mb-4">
+    <div class="tv-card-body" style="padding:14px 20px;">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <input class="tv-input" style="max-width:200px;" placeholder="🔍 Search pair, strategy..." @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilter" />
+            <select class="tv-select" style="max-width:150px;" @bind="filterStatus" @bind:after="ApplyFilter">
+                <option value="ALL">All Status</option>
+                <option value="WIN">Win</option>
+                <option value="LOSS">Loss</option>
+                <option value="BREAKEVEN">Breakeven</option>
+                <option value="PARTIAL">Partial</option>
+                <option value="PENDING">Pending</option>
+            </select>
+            <select class="tv-select" style="max-width:150px;" @bind="filterDirection" @bind:after="ApplyFilter">
+                <option value="ALL">All Direction</option>
+                <option value="BUY">Buy</option>
+                <option value="SELL">Sell</option>
+            </select>
+            <select class="tv-select" style="max-width:160px;" @bind="filterMarket" @bind:after="ApplyFilter">
+                <option value="ALL">All Markets</option>
+                <option value="Forex">Forex</option>
+                <option value="Crypto">Crypto</option>
+                <option value="Indices">Indices</option>
+                <option value="Commodities">Commodities</option>
+                <option value="Stocks">Stocks</option>
+            </select>
+            @if (filterStatus != "ALL" || filterDirection != "ALL" || filterMarket != "ALL" || !string.IsNullOrEmpty(searchQuery))
+            {
+                <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="ClearFilters">✕ Clear</button>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Stats Row -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+    <div class="tv-stat-card">
+        <div class="tv-stat-label">Showing</div>
+        <div class="tv-stat-value neutral">@filtered.Count</div>
+    </div>
+    <div class="tv-stat-card">
+        <div class="tv-stat-label">Win Rate</div>
+        <div class="tv-stat-value positive">@filteredWinRate.ToString("N1")%</div>
+    </div>
+    <div class="tv-stat-card">
+        <div class="tv-stat-label">Net P&amp;L</div>
+        <div class="tv-stat-value @(filteredPnL >= 0 ? "positive" : "negative")">@(filteredPnL >= 0 ? "+" : "")$@filteredPnL.ToString("N2")</div>
+    </div>
+    <div class="tv-stat-card">
+        <div class="tv-stat-label">Net RR</div>
+        <div class="tv-stat-value @(filteredRR >= 0 ? "positive" : "negative")">@(filteredRR >= 0 ? "+" : "")@filteredRR.ToString("N2")R</div>
+    </div>
+</div>
+
+<!-- Trade Table -->
+<div class="tv-card">
+    @if (loading)
+    {
+        <div class="tv-card-body text-muted animate-pulse">Loading trades...</div>
+    }
+    else if (filtered.Count == 0)
+    {
+        <div class="tv-card-body" style="text-align:center;padding:48px;">
+            <div style="font-size:48px;margin-bottom:12px;">📭</div>
+            <div style="font-size:16px;font-weight:600;margin-bottom:8px;">No trades found</div>
+            <div class="text-muted mb-4">@(allTrades.Count == 0 ? "Start logging your trades!" : "Try adjusting your filters.")</div>
+            <a href="/trades/new" class="tv-btn tv-btn-primary">➕ Log First Trade</a>
+        </div>
+    }
+    else
+    {
+        <div style="overflow-x:auto;">
+            <table class="tv-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Pair</th>
+                        <th>Strategy</th>
+                        <th>Dir</th>
+                        <th>Session</th>
+                        <th>Entry</th>
+                        <th>RR</th>
+                        <th>P&amp;L</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in filtered)
+                    {
+                        <tr style="cursor:pointer;" @onclick='() => Nav.NavigateTo("/trades/" + t.Id)'>
+                            <td>
+                                <div style="font-weight:500;">@t.Date.ToString("MMM dd")</div>
+                                <div class="text-xs text-muted">@t.Date.ToString("HH:mm")</div>
+                            </td>
+                            <td>
+                                <div style="font-weight:700;font-family:'Space Grotesk',sans-serif;">@t.Pair</div>
+                                <div class="text-xs text-muted">@t.MarketType</div>
+                            </td>
+                            <td>
+                                <div class="text-xs" style="max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">@(t.Strategy ?? "—")</div>
+                                <div class="text-xs text-muted">@(t.Timeframe ?? "")</div>
+                            </td>
+                            <td><span class="tv-badge @(t.Direction == "BUY" ? "tv-badge-buy" : "tv-badge-sell")">@t.Direction</span></td>
+                            <td class="text-xs text-muted">@(t.Session ?? "—")</td>
+                            <td style="font-family:'Space Grotesk',sans-serif;font-size:12px;">@t.EntryPrice.ToString("N4")</td>
+                            <td class="@(t.RRRatio >= 0 ? "text-success" : "text-danger") font-semibold">
+                                @(t.RRRatio.HasValue ? (t.RRRatio >= 0 ? "+" : "") + t.RRRatio.Value.ToString("N2") + "R" : "—")
+                            </td>
+                            <td class="@(t.PnL >= 0 ? "text-success" : "text-danger") font-semibold">
+                                @(t.PnL.HasValue ? (t.PnL >= 0 ? "+" : "-") + "$" + Math.Abs(t.PnL.Value).ToString("N2") : "—")
+                            </td>
+                            <td><span class="tv-badge tv-badge-@t.Status.ToLower()">@t.Status</span></td>
+                            <td @onclick:stopPropagation="true">
+                                <div class="flex gap-2">
+                                    <a href="@("/trades/" + t.Id + "/edit")" class="tv-btn tv-btn-ghost tv-btn-sm" @onclick:stopPropagation="true">✏️</a>
+                                    <button class="tv-btn tv-btn-danger tv-btn-sm" @onclick="() => ConfirmDelete(t)" @onclick:stopPropagation="true">🗑️</button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<!-- Delete Confirm Modal -->
+@if (deleteTarget != null)
+{
+    <div class="tv-modal-overlay" @onclick="() => deleteTarget = null">
+        <div class="tv-modal" style="max-width:420px;" @onclick:stopPropagation="true">
+            <div class="tv-modal-header">
+                <span class="tv-modal-title">🗑️ Delete Trade</span>
+                <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="() => deleteTarget = null">✕</button>
+            </div>
+            <div class="tv-modal-body">
+                <p>Are you sure you want to delete <strong>@deleteTarget.Pair — @deleteTarget.Strategy</strong>? This cannot be undone.</p>
+            </div>
+            <div class="tv-modal-footer">
+                <button class="tv-btn tv-btn-ghost" @onclick="() => deleteTarget = null">Cancel</button>
+                <button class="tv-btn tv-btn-danger" @onclick="DeleteTrade">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Trade> allTrades = [];
+    private List<Trade> filtered = [];
+    private bool loading = true;
+    private string userId = "";
+    private string searchQuery = "";
+    private string filterStatus = "ALL";
+    private string filterDirection = "ALL";
+    private string filterMarket = "ALL";
+    private string filterPair = "";
+    private Trade? deleteTarget;
+
+    private double filteredWinRate => filtered.Count(t => t.Status == "WIN") / (double)Math.Max(1, filtered.Count(t => t.Status != "PENDING")) * 100;
+    private decimal filteredPnL => filtered.Sum(t => t.PnL ?? 0);
+    private decimal filteredRR => filtered.Sum(t => t.RRRatio ?? 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        allTrades = await TradeService.GetTradesAsync(userId);
+        ApplyFilter();
+        loading = false;
+    }
+
+    private void ApplyFilter()
+    {
+        filtered = allTrades
+            .Where(t => filterStatus == "ALL" || t.Status == filterStatus)
+            .Where(t => filterDirection == "ALL" || t.Direction == filterDirection)
+            .Where(t => filterMarket == "ALL" || t.MarketType == filterMarket)
+            .Where(t => string.IsNullOrEmpty(searchQuery) ||
+                t.Pair.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                (t.Strategy?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (t.Notes?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false))
+            .ToList();
+    }
+
+    private void ClearFilters()
+    {
+        searchQuery = "";
+        filterStatus = "ALL";
+        filterDirection = "ALL";
+        filterMarket = "ALL";
+        ApplyFilter();
+    }
+
+    private void ConfirmDelete(Trade t) => deleteTarget = t;
+
+    private async Task DeleteTrade()
+    {
+        if (deleteTarget == null) return;
+        await TradeService.DeleteTradeAsync(deleteTarget.Id, userId);
+        allTrades.Remove(deleteTarget);
+        deleteTarget = null;
+        ApplyFilter();
+    }
+}

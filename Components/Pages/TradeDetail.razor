@@ -1,0 +1,351 @@
+@page "/trades/{TradeId:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<style>
+.ai-insights-card {
+    background: linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(168,85,247,0.06) 100%);
+    border: 1px solid rgba(99,102,241,0.2);
+}
+.ai-conf-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06); margin-top:4px; overflow:hidden; }
+.ai-conf-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.ai-summary-box { background:rgba(0,0,0,0.12); border-left:3px solid #a78bfa; border-radius: var(--radius-md); padding:12px 14px; font-size:13px; line-height:1.7; color:var(--text-secondary); }
+.ai-outcome-match { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; padding:4px 10px; border-radius:20px; }
+.ai-match-yes { background:rgba(16,185,129,0.12); color:var(--accent-success); border:1px solid rgba(16,185,129,0.2); }
+.ai-match-no  { background:rgba(239,68,68,0.10); color:var(--accent-danger);  border:1px solid rgba(239,68,68,0.2); }
+.ai-pattern-tag { display:inline-flex; align-items:center; gap:6px; background:rgba(168,85,247,0.15); border:1px solid rgba(168,85,247,0.3); border-radius:20px; padding:3px 10px; font-size:12px; font-weight:600; color:#c084fc; }
+</style>
+
+<PageTitle>Trade Detail — TradeVault</PageTitle>
+
+@if (loading)
+{
+    <div class="text-muted animate-pulse" style="padding:48px;text-align:center;">Loading trade...</div>
+}
+else if (trade == null)
+{
+    <div style="padding:48px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:12px;">🔍</div>
+        <div style="font-size:18px;font-weight:600;">Trade not found</div>
+        <a href="/trades" class="tv-btn tv-btn-primary mt-4">Back to Trade Log</a>
+    </div>
+}
+else
+{
+    <div class="tv-section-header mb-4">
+        <div>
+            <div class="tv-section-title">@trade.Pair — @trade.Strategy</div>
+            <div class="tv-section-sub">@trade.Date.ToString("dddd, MMMM dd, yyyy · HH:mm UTC")</div>
+        </div>
+        <div class="flex gap-2">
+            <a href="/trades" class="tv-btn tv-btn-ghost">← Back</a>
+            <a href="/trades/@trade.Id/edit" class="tv-btn tv-btn-primary">✏️ Edit</a>
+        </div>
+    </div>
+
+    <!-- Status Banner -->
+    <div class="tv-card mb-4" style="border-color:@StatusBorderColor(trade.Status);">
+        <div class="tv-card-body" style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+            <div style="font-size:36px;">@StatusEmoji(trade.Status)</div>
+            <div style="flex:1;">
+                <div style="font-size:20px;font-weight:800;font-family:'Space Grotesk',sans-serif;color:@StatusColor(trade.Status);">@trade.Status</div>
+                <div class="text-muted text-sm">@trade.MarketType · @trade.Timeframe · @trade.Session</div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,auto);gap:24px;text-align:center;">
+                <div>
+                    <div class="tv-stat-label">P&amp;L</div>
+                    <div style="font-size:20px;font-weight:700;color:@(trade.PnL >= 0 ? "var(--accent-success)" : "var(--accent-danger)")">@(trade.PnL.HasValue ? (trade.PnL >= 0 ? "+" : "-") + "$" + Math.Abs(trade.PnL.Value).ToString("N2") : "—")</div>
+                </div>
+                <div>
+                    <div class="tv-stat-label">RR Ratio</div>
+                    <div style="font-size:20px;font-weight:700;color:@(trade.RRRatio >= 0 ? "var(--accent-success)" : "var(--accent-danger)")">@(trade.RRRatio.HasValue ? (trade.RRRatio >= 0 ? "+" : "") + trade.RRRatio.Value.ToString("N2") + "R" : "—")</div>
+                </div>
+                <div>
+                    <div class="tv-stat-label">Direction</div>
+                    <div><span class="tv-badge @(trade.Direction == "BUY" ? "tv-badge-buy" : "tv-badge-sell")" style="font-size:14px;padding:4px 14px;">@trade.Direction</span></div>
+                </div>
+                <div>
+                    <div class="tv-stat-label">Confidence</div>
+                    <div style="font-size:20px;font-weight:700;color:var(--accent-warning);">@(trade.Confidence.HasValue ? trade.Confidence + "/10" : "—")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid-2 mb-4">
+        <!-- Price Levels -->
+        <div class="tv-card">
+            <div class="tv-card-header"><span class="tv-card-title">💲 Price Levels</span></div>
+            <div class="tv-card-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                    <div>
+                        <div class="tv-stat-label">Entry</div>
+                        <div style="font-size:18px;font-weight:700;font-family:'Space Grotesk',sans-serif;">@trade.EntryPrice.ToString("N5")</div>
+                    </div>
+                    <div>
+                        <div class="tv-stat-label">Exit</div>
+                        <div style="font-size:18px;font-weight:700;font-family:'Space Grotesk',sans-serif;">@(trade.ExitPrice.HasValue ? trade.ExitPrice.Value.ToString("N5") : "—")</div>
+                    </div>
+                    <div>
+                        <div class="tv-stat-label">Stop Loss</div>
+                        <div style="font-size:16px;font-weight:600;color:var(--accent-danger);">@(trade.StopLoss.HasValue ? trade.StopLoss.Value.ToString("N5") : "—")</div>
+                    </div>
+                    <div>
+                        <div class="tv-stat-label">Take Profit</div>
+                        <div style="font-size:16px;font-weight:600;color:var(--accent-success);">@(trade.TakeProfit.HasValue ? trade.TakeProfit.Value.ToString("N5") : "—")</div>
+                    </div>
+                    <div>
+                        <div class="tv-stat-label">Lot Size</div>
+                        <div style="font-size:16px;font-weight:600;">@(trade.LotSize.HasValue ? trade.LotSize.Value.ToString("N2") : "—")</div>
+                    </div>
+                    <div>
+                        <div class="tv-stat-label">Risk / Reward %</div>
+                        <div style="font-size:16px;font-weight:600;">@(trade.RiskPercent.HasValue ? trade.RiskPercent.Value + "%" : "—") / @(trade.RewardPercent.HasValue ? trade.RewardPercent.Value + "%" : "—")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Psychology -->
+        <div class="tv-card">
+            <div class="tv-card-header"><span class="tv-card-title">🧠 Psychology</span></div>
+            <div class="tv-card-body">
+                <div class="mb-4">
+                    <div class="tv-stat-label mb-1">Emotions Before</div>
+                    <div style="font-size:15px;font-weight:600;">@(string.IsNullOrEmpty(trade.EmotionsBefore) ? "—" : "😐 " + trade.EmotionsBefore)</div>
+                </div>
+                @if (!string.IsNullOrEmpty(trade.Mistakes))
+                {
+                    <div class="mb-4">
+                        <div class="tv-stat-label mb-1">Mistakes</div>
+                        <div class="text-danger text-sm">⚠️ @trade.Mistakes</div>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(trade.Lessons))
+                {
+                    <div class="mb-4">
+                        <div class="tv-stat-label mb-1">Lessons</div>
+                        <div class="text-sm" style="color:var(--text-secondary);">💡 @trade.Lessons</div>
+                    </div>
+                }
+                @if (trade.NewsTrade)
+                {
+                    <div class="tv-badge tv-badge-partial">📰 News Trade</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Notes & Tags -->
+    @if (!string.IsNullOrEmpty(trade.Notes) || !string.IsNullOrEmpty(trade.Tags))
+    {
+        <div class="tv-card mb-4">
+            <div class="tv-card-header"><span class="tv-card-title">📝 Notes &amp; Tags</span></div>
+            <div class="tv-card-body">
+                @if (!string.IsNullOrEmpty(trade.Notes))
+                {
+                    <p style="font-size:13.5px;line-height:1.7;color:var(--text-secondary);margin-bottom:16px;">@trade.Notes</p>
+                }
+                @if (!string.IsNullOrEmpty(trade.Tags))
+                {
+                    <div class="flex gap-2" style="flex-wrap:wrap;">
+                        @foreach (var tag in trade.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            <span class="tv-badge tv-badge-breakeven">🏷️ @tag.Trim()</span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @* ── AI Insights Card ── *@
+    @if (!string.IsNullOrEmpty(trade.AiSummary) || !string.IsNullOrEmpty(trade.AiDetectedPattern)
+         || trade.AiExtractedEntry.HasValue || !string.IsNullOrEmpty(trade.AiAfterAnalysis))
+    {
+        <div class="tv-card ai-insights-card mb-4">
+            <div class="tv-card-header">
+                <span class="tv-card-title">🤖 AI Insights</span>
+                @if (!string.IsNullOrEmpty(trade.AiDetectedPattern))
+                {
+                    <span class="ai-pattern-tag">📐 @trade.AiDetectedPattern</span>
+                }
+                @if (!string.IsNullOrEmpty(trade.AiOutcomeDetected))
+                {
+                    var aiMatchesActual = trade.AiOutcomeDetected == trade.Status
+                        || (trade.AiOutcomeDetected == "WIN" && trade.Status == "WIN")
+                        || (trade.AiOutcomeDetected == "LOSS" && trade.Status == "LOSS");
+                    <span class="ai-outcome-match @(aiMatchesActual ? "ai-match-yes" : "ai-match-no")">
+                        @(aiMatchesActual ? "✅ AI Correct" : "❌ AI Missed") · AI said @trade.AiOutcomeDetected · @trade.AiOutcomeConfidence%
+                    </span>
+                }
+            </div>
+            <div class="tv-card-body">
+                @* Extracted price levels with confidence *@
+                @if (trade.AiExtractedEntry.HasValue || trade.AiExtractedSL.HasValue || trade.AiExtractedTP.HasValue)
+                {
+                    <div style="margin-bottom:16px;">
+                        <div class="tv-stat-label mb-3">AI Extracted Price Levels</div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+                            <div>
+                                <div style="font-size:11px;color:var(--text-muted);">Entry</div>
+                                <div style="font-size:16px;font-weight:700;color:var(--accent-primary);">@(trade.AiExtractedEntry?.ToString("G7") ?? "—")</div>
+                                @if (trade.AiEntryConfidence.HasValue)
+                                {
+                                    <div class="ai-conf-bar"><div class="ai-conf-fill" style="width:@trade.AiEntryConfidence%;background:@ConfColor(trade.AiEntryConfidence.Value);"></div></div>
+                                    <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@trade.AiEntryConfidence% confidence</div>
+                                }
+                            </div>
+                            <div>
+                                <div style="font-size:11px;color:var(--text-muted);">Stop Loss</div>
+                                <div style="font-size:16px;font-weight:700;color:var(--accent-danger);">@(trade.AiExtractedSL?.ToString("G7") ?? "—")</div>
+                                @if (trade.AiSlConfidence.HasValue)
+                                {
+                                    <div class="ai-conf-bar"><div class="ai-conf-fill" style="width:@trade.AiSlConfidence%;background:@ConfColor(trade.AiSlConfidence.Value);"></div></div>
+                                    <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@trade.AiSlConfidence% confidence</div>
+                                }
+                            </div>
+                            <div>
+                                <div style="font-size:11px;color:var(--text-muted);">Take Profit</div>
+                                <div style="font-size:16px;font-weight:700;color:var(--accent-success);">@(trade.AiExtractedTP?.ToString("G7") ?? "—")</div>
+                                @if (trade.AiTpConfidence.HasValue)
+                                {
+                                    <div class="ai-conf-bar"><div class="ai-conf-fill" style="width:@trade.AiTpConfidence%;background:@ConfColor(trade.AiTpConfidence.Value);"></div></div>
+                                    <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@trade.AiTpConfidence% confidence</div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @* Detected metadata *@
+                @if (!string.IsNullOrEmpty(trade.AiExtractedPair) || !string.IsNullOrEmpty(trade.AiExtractedTimeframe) || !string.IsNullOrEmpty(trade.AiExtractedDirection))
+                {
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+                        @if (!string.IsNullOrEmpty(trade.AiExtractedPair))
+                        { <span class="tv-badge tv-badge-breakeven">🔤 @trade.AiExtractedPair</span> }
+                        @if (!string.IsNullOrEmpty(trade.AiExtractedTimeframe))
+                        { <span class="tv-badge tv-badge-breakeven">⏱️ @trade.AiExtractedTimeframe</span> }
+                        @if (!string.IsNullOrEmpty(trade.AiExtractedDirection))
+                        { <span class="tv-badge @(trade.AiExtractedDirection == "BUY" ? "tv-badge-buy" : "tv-badge-sell")">@(trade.AiExtractedDirection == "BUY" ? "🟢" : "🔴") @trade.AiExtractedDirection</span> }
+                    </div>
+                }
+
+                @* AI Trade Summary *@
+                @if (!string.IsNullOrEmpty(trade.AiSummary))
+                {
+                    <div class="mb-4">
+                        <div class="tv-stat-label mb-2">💡 AI Trade Summary</div>
+                        <div class="ai-summary-box">@trade.AiSummary</div>
+                    </div>
+                }
+
+                @* AI Post-Trade Analysis *@
+                @if (!string.IsNullOrEmpty(trade.AiAfterAnalysis))
+                {
+                    <div>
+                        <div class="tv-stat-label mb-2">🔍 AI Post-Trade Analysis</div>
+                        <div class="ai-summary-box" style="border-left-color:@(trade.Status == "WIN" ? "var(--accent-success)" : "var(--accent-danger)");">@trade.AiAfterAnalysis</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Images -->
+    @if (trade.Images.Count > 0)
+    {
+        <div class="tv-card mb-4">
+            <div class="tv-card-header"><span class="tv-card-title">🖼️ Charts &amp; Screenshots</span></div>
+            <div class="tv-card-body">
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;">
+                    @foreach (var img in trade.Images)
+                    {
+                        <div>
+                            <div class="tv-badge @(img.Category == "BEFORE" ? "tv-badge-pending" : "tv-badge-win") mb-2">@img.Category</div>
+                            <img src="@img.Url" alt="Trade chart @img.Category" style="width:100%;border-radius:var(--radius-md);border:1px solid var(--glass-border);object-fit:cover;max-height:250px;" />
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Timeline -->
+    @if (trade.Timeline.Count > 0)
+    {
+        <div class="tv-card">
+            <div class="tv-card-header"><span class="tv-card-title">⏱️ Trade Timeline</span></div>
+            <div class="tv-card-body">
+                <div class="tv-timeline">
+                    @foreach (var ev in trade.Timeline.OrderBy(e => e.CreatedAt))
+                    {
+                        <div class="tv-timeline-item">
+                            <div class="tv-timeline-event">@ev.Event</div>
+                            @if (!string.IsNullOrEmpty(ev.Description))
+                            {
+                                <div class="tv-timeline-desc">@ev.Description</div>
+                            }
+                            <div class="tv-timeline-time">@ev.CreatedAt.ToString("MMM dd, HH:mm")</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public Guid TradeId { get; set; }
+    private Trade? trade;
+    private bool loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        trade = await TradeService.GetTradeAsync(TradeId, userId);
+        loading = false;
+    }
+
+    private string StatusColor(string status) => status switch
+    {
+        "WIN" => "var(--accent-success)",
+        "LOSS" => "var(--accent-danger)",
+        "BREAKEVEN" => "var(--accent-primary)",
+        "PARTIAL" => "var(--accent-warning)",
+        _ => "var(--text-muted)"
+    };
+
+    private string StatusBorderColor(string status) => status switch
+    {
+        "WIN" => "rgba(16,185,129,0.3)",
+        "LOSS" => "rgba(239,68,68,0.3)",
+        "BREAKEVEN" => "rgba(212,175,55,0.3)",
+        "PARTIAL" => "rgba(245,158,11,0.3)",
+        _ => "var(--glass-border)"
+    };
+
+    private string StatusEmoji(string status) => status switch
+    {
+        "WIN" => "🏆",
+        "LOSS" => "❌",
+        "BREAKEVEN" => "⚖️",
+        "PARTIAL" => "🔶",
+        _ => "⏳"
+    };
+
+    private static string ConfColor(int pct) => pct switch
+    {
+        >= 80 => "var(--accent-success)",
+        >= 60 => "var(--accent-warning)",
+        >= 40 => "#f97316",
+        _     => "var(--accent-danger)"
+    };
+}

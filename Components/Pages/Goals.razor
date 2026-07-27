@@ -1,0 +1,280 @@
+@page "/goals"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Goals — TradeVault</PageTitle>
+
+<div class="tv-section-header mb-4">
+    <div>
+        <div class="tv-section-title">🎯 Trading Goals</div>
+        <div class="tv-section-sub">Track your progress and stay accountable</div>
+    </div>
+    <button class="tv-btn tv-btn-primary" @onclick="OpenNew">➕ New Goal</button>
+</div>
+
+<!-- Goal Form Modal -->
+@if (showForm)
+{
+    <div class="tv-modal-overlay" @onclick="CloseForm">
+        <div class="tv-modal" style="max-width:560px;" @onclick:stopPropagation="true">
+            <div class="tv-modal-header">
+                <span class="tv-modal-title">@(editGoal == null ? "🎯 New Goal" : "✏️ Edit Goal")</span>
+                <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="CloseForm">✕</button>
+            </div>
+            <div class="tv-modal-body">
+                <div class="tv-form-group">
+                    <label class="tv-label">Goal Title</label>
+                    <input class="tv-input" @bind="form.Title" placeholder="e.g. Achieve 15 RR this month" />
+                </div>
+                <div class="tv-form-group">
+                    <label class="tv-label">Description</label>
+                    <textarea class="tv-textarea" @bind="form.Description" placeholder="Why is this goal important?" style="min-height:70px;"></textarea>
+                </div>
+                <div class="tv-form-grid-2">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Metric</label>
+                        <select class="tv-select" @bind="form.Metric">
+                            <option value="RR">RR (Risk/Reward)</option>
+                            <option value="WinRate">Win Rate %</option>
+                            <option value="TradesLimit">Trades Per Day</option>
+                            <option value="Discipline">Discipline Score %</option>
+                        </select>
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Status</label>
+                        <select class="tv-select" @bind="form.Status">
+                            <option value="ACTIVE">Active</option>
+                            <option value="COMPLETED">Completed</option>
+                            <option value="FAILED">Failed</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="tv-form-grid-3">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Target Value</label>
+                        <input type="number" class="tv-input" @bind="form.TargetValue" step="0.1" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Current Value</label>
+                        <input type="number" class="tv-input" @bind="form.CurrentValue" step="0.1" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Target Date</label>
+                        <input type="date" class="tv-input" @bind="form.TargetDate" />
+                    </div>
+                </div>
+            </div>
+            <div class="tv-modal-footer">
+                <button class="tv-btn tv-btn-ghost" @onclick="CloseForm">Cancel</button>
+                <button class="tv-btn tv-btn-primary" @onclick="SaveGoal" disabled="@saving">
+                    @(saving ? "⏳ Saving..." : "💾 Save Goal")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Modal -->
+@if (deleteTarget != null)
+{
+    <div class="tv-modal-overlay" @onclick="() => deleteTarget = null">
+        <div class="tv-modal" style="max-width:400px;" @onclick:stopPropagation="true">
+            <div class="tv-modal-header">
+                <span class="tv-modal-title">🗑️ Delete Goal</span>
+                <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="() => deleteTarget = null">✕</button>
+            </div>
+            <div class="tv-modal-body">
+                <p>Delete <strong>@deleteTarget.Title</strong>? This cannot be undone.</p>
+            </div>
+            <div class="tv-modal-footer">
+                <button class="tv-btn tv-btn-ghost" @onclick="() => deleteTarget = null">Cancel</button>
+                <button class="tv-btn tv-btn-danger" @onclick="DeleteGoal">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loading)
+{
+    <div class="text-muted animate-pulse">Loading goals...</div>
+}
+else if (goals.Count == 0)
+{
+    <div class="tv-card" style="text-align:center;padding:60px;">
+        <div style="font-size:48px;margin-bottom:12px;">🎯</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:8px;">No goals set</div>
+        <div class="text-muted mb-4">Set trading goals to stay on track</div>
+        <button class="tv-btn tv-btn-primary" @onclick="OpenNew">➕ Set First Goal</button>
+    </div>
+}
+else
+{
+    <!-- Summary Stats -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px;">
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">✅</div>
+            <div class="tv-stat-label">Completed</div>
+            <div class="tv-stat-value positive">@goals.Count(g => g.Status == "COMPLETED")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">⚡</div>
+            <div class="tv-stat-label">Active</div>
+            <div class="tv-stat-value neutral">@goals.Count(g => g.Status == "ACTIVE")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-icon">❌</div>
+            <div class="tv-stat-label">Failed</div>
+            <div class="tv-stat-value negative">@goals.Count(g => g.Status == "FAILED")</div>
+        </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px;">
+        @foreach (var g in goals)
+        {
+            var pct = g.TargetValue > 0 ? Math.Min(100m, g.CurrentValue / g.TargetValue * 100) : 0;
+            var daysLeft = (g.TargetDate - DateTime.UtcNow).Days;
+
+            <div class="tv-card" style="border-color:@GoalBorderColor(g.Status);">
+                <div class="tv-card-body">
+                    <div class="flex justify-between mb-2">
+                        <div>
+                            <div style="font-size:15px;font-weight:700;">@g.Title</div>
+                            @if (!string.IsNullOrEmpty(g.Description))
+                            {
+                                <div class="text-xs text-muted">@g.Description</div>
+                            }
+                        </div>
+                        <div class="flex gap-2 items-center">
+                            <span class="tv-badge tv-badge-@g.Status.ToLower()">@GoalStatusLabel(g.Status)</span>
+                            <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="() => OpenEdit(g)">✏️</button>
+                            <button class="tv-btn tv-btn-danger tv-btn-sm" @onclick="() => deleteTarget = g">🗑️</button>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between mb-2">
+                        <div>
+                            <span style="font-size:22px;font-weight:800;font-family:'Space Grotesk',sans-serif;color:@GoalColor(g.Status);">@g.CurrentValue.ToString("N1")</span>
+                            <span class="text-muted" style="font-size:14px;"> / @g.TargetValue.ToString("N1") @MetricUnit(g.Metric)</span>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:20px;font-weight:700;color:@GoalColor(g.Status);">@pct.ToString("N0")%</div>
+                            <div class="text-xs text-muted">@(daysLeft > 0 ? $"{daysLeft} days left" : daysLeft == 0 ? "Due today" : "Overdue")</div>
+                        </div>
+                    </div>
+
+                    <div class="tv-progress">
+                        <div class="tv-progress-bar @(g.Status == "COMPLETED" ? "success" : g.Status == "FAILED" ? "danger" : "")" style="width:@pct%"></div>
+                    </div>
+
+                    <div class="flex gap-3 mt-3">
+                        <span class="text-xs text-muted">📊 @g.Metric</span>
+                        <span class="text-xs text-muted">🗓️ Due @g.TargetDate.ToString("MMM dd, yyyy")</span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<TradingGoal> goals = [];
+    private bool loading = true;
+    private bool saving = false;
+    private bool showForm = false;
+    private string userId = "";
+    private TradingGoal? editGoal;
+    private TradingGoal? deleteTarget;
+    private TradingGoal form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        goals = await TradeService.GetGoalsAsync(userId);
+        loading = false;
+    }
+
+    private void OpenNew()
+    {
+        editGoal = null;
+        form = new TradingGoal { TargetDate = DateTime.UtcNow.AddDays(30) };
+        showForm = true;
+    }
+
+    private void OpenEdit(TradingGoal g)
+    {
+        editGoal = g;
+        form = new TradingGoal
+        {
+            Title = g.Title, Description = g.Description, TargetValue = g.TargetValue,
+            CurrentValue = g.CurrentValue, Metric = g.Metric, TargetDate = g.TargetDate, Status = g.Status
+        };
+        showForm = true;
+    }
+
+    private void CloseForm() { showForm = false; editGoal = null; }
+
+    private async Task SaveGoal()
+    {
+        saving = true;
+        form.UserId = userId;
+        if (editGoal != null)
+        {
+            editGoal.Title = form.Title; editGoal.Description = form.Description;
+            editGoal.TargetValue = form.TargetValue; editGoal.CurrentValue = form.CurrentValue;
+            editGoal.Metric = form.Metric; editGoal.TargetDate = form.TargetDate; editGoal.Status = form.Status;
+            await TradeService.UpdateGoalAsync(editGoal);
+        }
+        else
+        {
+            var created = await TradeService.CreateGoalAsync(form);
+            goals.Insert(0, created);
+        }
+        goals = await TradeService.GetGoalsAsync(userId);
+        CloseForm();
+        saving = false;
+    }
+
+    private async Task DeleteGoal()
+    {
+        if (deleteTarget == null) return;
+        await TradeService.DeleteGoalAsync(deleteTarget.Id, userId);
+        goals.Remove(deleteTarget);
+        deleteTarget = null;
+    }
+
+    private string GoalBorderColor(string status) => status switch
+    {
+        "COMPLETED" => "rgba(16,185,129,0.3)",
+        "FAILED" => "rgba(239,68,68,0.3)",
+        _ => "var(--glass-border)"
+    };
+
+    private string GoalColor(string status) => status switch
+    {
+        "COMPLETED" => "var(--accent-success)",
+        "FAILED" => "var(--accent-danger)",
+        _ => "var(--accent-primary)"
+    };
+
+    private string GoalStatusLabel(string status) => status switch
+    {
+        "COMPLETED" => "✅ Completed",
+        "FAILED" => "❌ Failed",
+        _ => "⚡ Active"
+    };
+
+    private string MetricUnit(string metric) => metric switch
+    {
+        "RR" => "R",
+        "WinRate" => "%",
+        "TradesLimit" => "trades/day",
+        "Discipline" => "%",
+        _ => ""
+    };
+}

@@ -1,0 +1,95 @@
+@page "/Account/ConfirmEmail"
+
+@using System.Text
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using TradeVault.Data
+
+@inject UserManager<ApplicationUser> UserManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Email Verification Success — TradeVault</PageTitle>
+
+<div class="tv-auth-page">
+    <div class="tv-auth-card" style="max-width: 460px; text-align: center;">
+        <div class="tv-auth-logo" style="margin-bottom: 24px;">
+            @if (isSuccess)
+            {
+                <div class="tv-logo-icon" style="margin: 0 auto 16px; font-size: 28px; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); color: #10b981; border-radius: 50%; box-shadow: 0 0 20px rgba(16,185,129,0.15); animation: pulse 2s infinite;">✓</div>
+                <h2 class="tv-auth-title" style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--text-primary);">Email Verified</h2>
+                <p class="tv-auth-sub" style="font-size: 13.5px; color: var(--text-muted); margin-top: 6px;">Your TradeVault account is now active and ready.</p>
+            }
+            else
+            {
+                <div class="tv-logo-icon" style="margin: 0 auto 16px; font-size: 28px; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; border-radius: 50%; box-shadow: 0 0 20px rgba(239,68,68,0.15);">⚠️</div>
+                <h2 class="tv-auth-title" style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--text-primary);">Verification Failed</h2>
+                <p class="tv-auth-sub" style="font-size: 13.5px; color: var(--text-muted); margin-top: 6px;">We encountered an issue confirming your email address.</p>
+            }
+        </div>
+
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border); border-radius: var(--radius-md); padding: 20px; margin-bottom: 24px;">
+            <p style="font-size: 14.5px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 0;">
+                @statusMessage
+            </p>
+        </div>
+
+        @if (isSuccess)
+        {
+            <a href="Account/Login" class="tv-btn tv-btn-primary w-full" style="justify-content: center; padding: 12px; font-size: 14.5px; text-decoration: none;">
+                Proceed to Login
+            </a>
+        }
+        else
+        {
+            <a href="Account/ResendEmailConfirmation" class="tv-btn tv-btn-ghost w-full" style="justify-content: center; padding: 12px; font-size: 14.5px; text-decoration: none; border: 1px solid var(--glass-border);">
+                Try Resending Verification Link
+            </a>
+        }
+    </div>
+</div>
+
+@code {
+    private string? statusMessage;
+    private bool isSuccess;
+
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? UserId { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? Code { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (UserId is null || Code is null)
+        {
+            RedirectManager.RedirectTo("");
+            return;
+        }
+
+        var user = await UserManager.FindByIdAsync(UserId);
+        if (user is null)
+        {
+            HttpContext.Response.StatusCode = StatusCodes.Status404NotFound;
+            statusMessage = $"Error loading user with ID {UserId}";
+            isSuccess = false;
+        }
+        else
+        {
+            var code = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(Code));
+            var result = await UserManager.ConfirmEmailAsync(user, code);
+            if (result.Succeeded)
+            {
+                statusMessage = "Thank you for confirming your email. You can now log in to access your dashboard.";
+                isSuccess = true;
+            }
+            else
+            {
+                statusMessage = "The confirmation code is invalid or has expired.";
+                isSuccess = false;
+            }
+        }
+    }
+}

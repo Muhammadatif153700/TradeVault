@@ -1,0 +1,210 @@
+@page "/calendar"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>Calendar — TradeVault</PageTitle>
+
+<div class="tv-section-header mb-4">
+    <div>
+        <div class="tv-section-title">📅 Trade Calendar</div>
+        <div class="tv-section-sub">Visualize your trading activity by day</div>
+    </div>
+    <div class="flex gap-2">
+        <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="PrevMonth">← Prev</button>
+        <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="GoToday">Today</button>
+        <button class="tv-btn tv-btn-ghost tv-btn-sm" @onclick="NextMonth">Next →</button>
+    </div>
+</div>
+
+<!-- Month Header -->
+<div class="tv-card mb-4">
+    <div class="tv-card-body" style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:20px;font-weight:700;font-family:'Space Grotesk',sans-serif;">@currentDate.ToString("MMMM yyyy")</span>
+        <div class="flex gap-4">
+            <span class="flex gap-2 items-center text-xs"><span style="width:10px;height:10px;border-radius:2px;background:rgba(16,185,129,0.4);display:inline-block;"></span> Win Day</span>
+            <span class="flex gap-2 items-center text-xs"><span style="width:10px;height:10px;border-radius:2px;background:rgba(239,68,68,0.3);display:inline-block;"></span> Loss Day</span>
+            <span class="flex gap-2 items-center text-xs"><span style="width:10px;height:10px;border-radius:2px;background:rgba(245,158,11,0.3);display:inline-block;"></span> Mixed</span>
+        </div>
+    </div>
+</div>
+
+@if (loading)
+{
+    <div class="text-muted animate-pulse">Loading calendar...</div>
+}
+else
+{
+    <!-- Calendar Grid -->
+    <div class="tv-card mb-4">
+        <div class="tv-card-body">
+            <!-- Day Labels -->
+            <div class="tv-cal-header">
+                @foreach (var day in new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" })
+                {
+                    <div class="tv-cal-day-label">@day</div>
+                }
+            </div>
+            <!-- Days -->
+            <div class="tv-calendar">
+                @for (int i = 0; i < startOffset; i++)
+                {
+                    <div class="tv-cal-day empty"></div>
+                }
+                @for (int d = 1; d <= daysInMonth; d++)
+                {
+                    var date = new DateTime(currentDate.Year, currentDate.Month, d);
+                    var dayTrades = tradesByDay.GetValueOrDefault(date, []);
+                    var dayPnL = dayTrades.Sum(t => t.PnL ?? 0);
+                    var dayClass = GetDayClass(date, dayTrades);
+                    var isToday = date.Date == DateTime.Today;
+                    var capturedD = d;
+                    var capturedDate = date;
+
+                    <div class="tv-cal-day @dayClass @(isToday ? "today" : "")" @onclick="() => SelectDay(capturedDate)" title="@(dayTrades.Count > 0 ? $"{dayTrades.Count} trades · {(dayPnL >= 0 ? "+" : "")}${dayPnL:N2}" : date.ToString("MMM dd"))">
+                        <span class="tv-cal-day-num">@d</span>
+                        @if (dayTrades.Count > 0)
+                        {
+                            <span class="tv-cal-day-dot"></span>
+                            <span style="font-size:9px;font-weight:600;opacity:0.9;">@dayTrades.Count</span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Monthly Stats -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+        @{
+            var monthTrades = tradesByDay.Values.SelectMany(v => v).ToList();
+            var mWins = monthTrades.Count(t => t.Status == "WIN");
+            var mLosses = monthTrades.Count(t => t.Status == "LOSS");
+            var mPnL = monthTrades.Sum(t => t.PnL ?? 0);
+            var mWR = monthTrades.Count > 0 ? (double)mWins / monthTrades.Count * 100 : 0;
+        }
+        <div class="tv-stat-card">
+            <div class="tv-stat-label">Trades</div>
+            <div class="tv-stat-value neutral">@monthTrades.Count</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-label">Win Rate</div>
+            <div class="tv-stat-value positive">@mWR.ToString("N1")%</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-label">Net P&amp;L</div>
+            <div class="tv-stat-value @(mPnL >= 0 ? "positive" : "negative")">@(mPnL >= 0 ? "+" : "")$@mPnL.ToString("N2")</div>
+        </div>
+        <div class="tv-stat-card">
+            <div class="tv-stat-label">Active Days</div>
+            <div class="tv-stat-value neutral">@tradesByDay.Keys.Count(k => tradesByDay[k].Count > 0)</div>
+        </div>
+    </div>
+
+    <!-- Selected Day Detail -->
+    @if (selectedDay != null && tradesByDay.ContainsKey(selectedDay.Value))
+    {
+        var dayTrades = tradesByDay[selectedDay.Value];
+        <div class="tv-card">
+            <div class="tv-card-header">
+                <span class="tv-card-title">📅 @selectedDay.Value.ToString("dddd, MMMM dd")</span>
+                <span class="text-muted text-xs">@dayTrades.Count trades · @(dayTrades.Sum(t => t.PnL ?? 0) >= 0 ? "+" : "")$@dayTrades.Sum(t => t.PnL ?? 0).ToString("N2")</span>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="tv-table">
+                    <thead>
+                        <tr>
+                            <th>Pair</th>
+                            <th>Direction</th>
+                            <th>Strategy</th>
+                            <th>Session</th>
+                            <th>RR</th>
+                            <th>P&amp;L</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in dayTrades)
+                        {
+                            <tr style="cursor:pointer;" @onclick='() => Nav.NavigateTo("/trades/" + t.Id)'>
+                                <td style="font-weight:700;font-family:'Space Grotesk',sans-serif;">@t.Pair</td>
+                                <td><span class="tv-badge @(t.Direction == "BUY" ? "tv-badge-buy" : "tv-badge-sell")">@t.Direction</span></td>
+                                <td class="text-xs">@(t.Strategy ?? "—")</td>
+                                <td class="text-xs text-muted">@(t.Session ?? "—")</td>
+                                <td class="@(t.RRRatio >= 0 ? "text-success" : "text-danger")">@(t.RRRatio.HasValue ? (t.RRRatio >= 0 ? "+" : "") + t.RRRatio.Value.ToString("N2") + "R" : "—")</td>
+                                <td class="@(t.PnL >= 0 ? "text-success" : "text-danger")">@(t.PnL.HasValue ? (t.PnL >= 0 ? "+" : "-") + "$" + Math.Abs(t.PnL.Value).ToString("N2") : "—")</td>
+                                <td><span class="tv-badge tv-badge-@t.Status.ToLower()">@t.Status</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (selectedDay != null)
+    {
+        <div class="tv-card tv-card-body text-muted" style="text-align:center;padding:32px;">
+            No trades on @selectedDay.Value.ToString("MMMM dd, yyyy")
+        </div>
+    }
+}
+
+@code {
+    private DateTime currentDate = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private Dictionary<DateTime, List<Trade>> tradesByDay = [];
+    private bool loading = true;
+    private DateTime? selectedDay;
+
+    private int startOffset => (int)currentDate.DayOfWeek;
+    private int daysInMonth => DateTime.DaysInMonth(currentDate.Year, currentDate.Month);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        var allTrades = await TradeService.GetTradesAsync(userId);
+        BuildCalendar(allTrades);
+        loading = false;
+    }
+
+    private void BuildCalendar(List<Trade> trades)
+    {
+        tradesByDay = trades
+            .Where(t => t.Date.Year == currentDate.Year && t.Date.Month == currentDate.Month)
+            .GroupBy(t => t.Date.Date)
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    private async Task RefreshData()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+        var allTrades = await TradeService.GetTradesAsync(userId);
+        BuildCalendar(allTrades);
+    }
+
+    private async Task PrevMonth() { currentDate = currentDate.AddMonths(-1); selectedDay = null; await RefreshData(); }
+    private async Task NextMonth() { currentDate = currentDate.AddMonths(1); selectedDay = null; await RefreshData(); }
+    private async Task GoToday() { currentDate = new(DateTime.Today.Year, DateTime.Today.Month, 1); selectedDay = null; await RefreshData(); }
+
+    private void SelectDay(DateTime date)
+    {
+        selectedDay = selectedDay == date ? null : date;
+    }
+
+    private string GetDayClass(DateTime date, List<Trade> trades)
+    {
+        if (trades.Count == 0) return "";
+        var wins = trades.Count(t => t.Status == "WIN");
+        var losses = trades.Count(t => t.Status == "LOSS");
+        if (wins > 0 && losses == 0) return "win";
+        if (losses > 0 && wins == 0) return "loss";
+        if (wins > 0 || losses > 0) return "mixed";
+        return "journal";
+    }
+}

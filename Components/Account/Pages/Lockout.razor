@@ -1,0 +1,26 @@
+@page "/Account/Lockout"
+
+<PageTitle>Account Locked Out — TradeVault</PageTitle>
+
+<div class="tv-auth-page">
+    <div class="tv-auth-card" style="max-width: 460px; text-align: center;">
+        <div class="tv-auth-logo" style="margin-bottom: 24px;">
+            <div class="tv-logo-icon" style="margin: 0 auto 16px; font-size: 28px; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #ef4444; border-radius: 50%; box-shadow: 0 0 20px rgba(239,68,68,0.15);">🔒</div>
+            <h2 class="tv-auth-title" style="font-size: 24px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--text-primary);">Account Locked</h2>
+            <p class="tv-auth-sub" style="font-size: 13.5px; color: var(--text-muted); margin-top: 6px;">Due to multiple failed login attempts.</p>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border); border-radius: var(--radius-md); padding: 20px; margin-bottom: 24px;">
+            <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 0;">
+                For security reasons, your account has been temporarily locked out. Please try again later or request a password reset.
+            </p>
+        </div>
+
+        <a href="Account/ForgotPassword" class="tv-btn tv-btn-primary w-full" style="justify-content: center; padding: 12px; font-size: 14.5px; text-decoration: none; margin-bottom: 12px;">
+            Reset Password
+        </a>
+        <a href="Account/Login" class="tv-btn tv-btn-ghost w-full" style="justify-content: center; padding: 12px; font-size: 14.5px; text-decoration: none; border: 1px solid var(--glass-border);">
+            Back to Login
+        </a>
+    </div>
+</div>

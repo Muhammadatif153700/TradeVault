@@ -1,0 +1,1205 @@
+@page "/trades/new"
+@page "/trades/{TradeId:guid}/edit"
+@using Microsoft.AspNetCore.Authorization
+@using TradeVault.Models
+@using TradeVault.Services
+@using Microsoft.AspNetCore.Components.Forms
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TradeService TradeService
+@inject GeminiAiService AiService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>@(isEdit ? "Edit Trade" : "New Trade") — TradeVault</PageTitle>
+
+<style>
+/* ── AI Extraction Panel ─────────────────────────────────────────────────── */
+.ai-panel {
+    background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(168,85,247,0.08) 100%);
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin-bottom: 16px;
+    animation: aiSlideIn 0.4s ease;
+}
+@@keyframes aiSlideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.ai-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.ai-panel-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #a78bfa;
+    flex: 1;
+}
+.ai-badge-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(99,102,241,0.15);
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 20px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #a78bfa;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.ai-badge-field:hover { background: rgba(99,102,241,0.25); }
+.ai-confidence-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--bg-card);
+    margin-top: 4px;
+    overflow: hidden;
+}
+.ai-confidence-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s ease;
+}
+.ai-summary-box {
+    background: rgba(0,0,0,0.15);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    border-left: 3px solid #a78bfa;
+    margin-top: 12px;
+}
+.ai-pattern-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(168,85,247,0.15);
+    border: 1px solid rgba(168,85,247,0.3);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #c084fc;
+}
+.ai-loading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 20px;
+    background: rgba(99,102,241,0.06);
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: var(--radius-lg);
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: #a78bfa;
+    font-weight: 600;
+}
+.ai-spinner {
+    width: 22px;
+    height: 22px;
+    border: 3px solid rgba(99,102,241,0.2);
+    border-top-color: #a78bfa;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+.ai-error-box {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--accent-danger);
+    margin-bottom: 16px;
+}
+.ai-outcome-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin: 12px 0;
+}
+.ai-outcome-item { text-align: center; }
+.ai-outcome-label { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+.ai-outcome-value { font-size: 16px; font-weight: 700; font-family: 'Space Grotesk', sans-serif; }
+.ai-apply-btn {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.ai-apply-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.4); }
+.ai-dismiss-btn {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.field-ai-applied {
+    border-color: rgba(99,102,241,0.5) !important;
+    background: rgba(99,102,241,0.04) !important;
+}
+</style>
+
+<div class="tv-section-header mb-4">
+    <div>
+        <div class="tv-section-title">@(isEdit ? "✏️ Edit Trade" : "➕ Log Trade")</div>
+        <div class="tv-section-sub">@(isEdit ? "Update details or close the trade with result" : "Record your setup before the result is known")</div>
+    </div>
+    <a href="/trades" class="tv-btn tv-btn-ghost">← Back</a>
+</div>
+
+@if (loading)
+{
+    <div class="text-muted animate-pulse">Loading...</div>
+}
+else
+{
+    @if (isEdit && trade.Status == "PENDING")
+    {
+        <div class="close-trade-banner mb-4">
+            <div class="close-trade-banner-icon">⚡</div>
+            <div>
+                <div class="close-trade-banner-title">Trade Still Open</div>
+                <div class="close-trade-banner-desc">Change the status to WIN, LOSS, or BREAKEVEN below to close this trade and record the result. Then add your after-chart screenshot.</div>
+            </div>
+        </div>
+    }
+
+    <EditForm Model="trade" OnValidSubmit="SaveTrade">
+        <DataAnnotationsValidator />
+
+        @* ── CORE DETAILS ──────────────────────────────────────────────────────── *@
+        <div class="tv-card mb-4">
+            <div class="tv-card-header">
+                <span class="tv-card-title">📌 Core Details</span>
+                <span class="trade-phase-badge @(trade.Status == "PENDING" ? "phase-open" : "phase-closed")">
+                    @(trade.Status == "PENDING" ? "⏳ Open Position" : "✅ Closed Trade")
+                </span>
+            </div>
+            <div class="tv-card-body">
+                <div class="tv-form-group">
+                    <label class="tv-label">Title / Setup Name</label>
+                    <InputText class="tv-input" @bind-Value="trade.Title" placeholder="e.g. SMC Order Block on EURUSD H1" />
+                    <ValidationMessage For="() => trade.Title" />
+                </div>
+                <div class="tv-form-grid-3">
+                    <div class="tv-form-group">
+                        <label class="tv-label">
+                            Pair
+                            @if (!string.IsNullOrEmpty(trade.AiExtractedPair) && !aiPairDismissed)
+                            {
+                                <span class="ai-badge-field ms-2" @onclick="() => ApplyAiPair()" title="Click to apply AI suggestion">🤖 @trade.AiExtractedPair</span>
+                            }
+                        </label>
+                        <InputText class="@($"tv-input {(aiAppliedPair ? "field-ai-applied" : "")}")" @bind-Value="trade.Pair" @oninput="() => aiAppliedPair = false" placeholder="EURUSD, XAUUSD..." />
+                        <ValidationMessage For="() => trade.Pair" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Market</label>
+                        <InputSelect class="tv-select" @bind-Value="trade.MarketType">
+                            <option>Forex</option><option>Crypto</option><option>Stocks</option>
+                            <option>Indices</option><option>Commodities</option><option>Options</option>
+                        </InputSelect>
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">
+                            Direction
+                            @if (!string.IsNullOrEmpty(trade.AiExtractedDirection) && !aiDirectionDismissed)
+                            {
+                                <span class="ai-badge-field ms-2" @onclick="() => ApplyAiDirection()" title="Click to apply AI suggestion">🤖 @trade.AiExtractedDirection</span>
+                            }
+                        </label>
+                        <InputSelect class="@($"tv-select {(aiAppliedDirection ? "field-ai-applied" : "")}")" @bind-Value="trade.Direction" @onchange="() => aiAppliedDirection = false">
+                            <option value="BUY">BUY 🟢</option>
+                            <option value="SELL">SELL 🔴</option>
+                        </InputSelect>
+                    </div>
+                </div>
+                <div class="tv-form-grid-3">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Status</label>
+                        <InputSelect class="tv-select" @bind-Value="trade.Status">
+                            <option>PENDING</option><option>WIN</option><option>LOSS</option>
+                            <option>BREAKEVEN</option><option>PARTIAL</option>
+                        </InputSelect>
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Date &amp; Time</label>
+                        <InputDate class="tv-input" Type="InputDateType.DateTimeLocal" @bind-Value="trade.Date" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Session</label>
+                        <InputSelect class="tv-select" @bind-Value="trade.Session">
+                            <option value="">— None —</option>
+                            <option>London</option><option>New York</option><option>Asian</option><option>London/NY Overlap</option>
+                        </InputSelect>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* ── CHART SCREENSHOTS ─────────────────────────────────────────────────── *@
+        <div class="tv-card mb-4">
+            <div class="tv-card-header">
+                <span class="tv-card-title">📸 Chart Screenshots</span>
+                <span style="font-size:12px;color:var(--text-muted);">Before entry &amp; after result — PNG, JPG, WebP up to 10 MB</span>
+            </div>
+            <div class="tv-card-body">
+                <!-- Gemini API Key Input Bar -->
+                <div style="background: rgba(99, 102, 241, 0.06); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 18px;">🔑</span>
+                        <div>
+                            <div style="font-size: 12.5px; font-weight: 700; color: #a78bfa;">Google Gemini AI Vision</div>
+                            <div style="font-size: 11.5px; color: var(--text-muted);">
+                                @(AiService.IsKeyConfigured ? "✓ Gemini Vision AI is configured & ready" : "Enter your Google Gemini API Key to enable automatic chart extraction")
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; flex: 1; max-width: 380px;">
+                        <input type="password" class="tv-input" style="padding: 6px 12px; font-size: 12px;" placeholder="Paste Gemini API Key (AIzaSy...)" @bind="geminiApiKeyInput" @bind:after="OnUpdateApiKey" />
+                        @if (!string.IsNullOrEmpty(geminiApiKeyInput))
+                        {
+                            <button type="button" class="tv-btn tv-btn-primary tv-btn-sm" @onclick="OnUpdateApiKey">Set Key</button>
+                        }
+                    </div>
+                </div>
+
+                <div class="charts-grid">
+
+                    @* ── Before Chart ── *@
+                    <div class="chart-zone">
+                        <div class="chart-zone-head">
+                            <span class="chart-zone-label zone-before">📊 Before Chart</span>
+                            <span class="chart-zone-hint">Setup &amp; Entry — AI will auto-extract levels</span>
+                        </div>
+                        @if (existingBeforeImages.Any() || pendingBeforePreviews.Any())
+                        {
+                            <div class="chart-thumbs">
+                                @foreach (var img in existingBeforeImages)
+                                {
+                                    <div class="thumb-wrap">
+                                        <img src="@img.Url" class="chart-thumb" @onclick="() => OpenLightbox(img.Url)" title="Click to view" />
+                                        <button type="button" class="thumb-del" @onclick="() => DeleteExistingImage(img.Id)" title="Remove">✕</button>
+                                    </div>
+                                }
+                                @foreach (var (preview, idx) in pendingBeforePreviews.Select((p, i) => (p, i)))
+                                {
+                                    <div class="thumb-wrap thumb-pending">
+                                        <img src="@preview" class="chart-thumb" @onclick="() => OpenLightbox(preview)" title="Pending upload" />
+                                        <button type="button" class="thumb-del" @onclick="() => RemovePendingBefore(idx)" title="Remove">✕</button>
+                                        <div class="thumb-badge">Pending</div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <label class="chart-drop" for="before-upload-input">
+                            <div class="drop-ico">📁</div>
+                            <div class="drop-title">Click to upload before chart</div>
+                            <div class="drop-sub">AI will read price levels automatically</div>
+                        </label>
+                        <InputFile id="before-upload-input" class="file-hidden" OnChange="OnBeforeFilesSelected" accept="image/*" multiple />
+                    </div>
+
+                    @* ── After Chart ── *@
+                    <div class="@("chart-zone" + (trade.Status == "PENDING" ? " zone-locked" : ""))">
+                        <div class="chart-zone-head">
+                            <span class="chart-zone-label zone-after">📈 After Chart</span>
+                            <span class="chart-zone-hint">Result &amp; Outcome — AI will compare</span>
+                        </div>
+                        @if (trade.Status == "PENDING")
+                        {
+                            <div class="zone-locked-msg">
+                                <span>🔒</span>
+                                <span>Close the trade first to add your after-chart</span>
+                            </div>
+                        }
+                        else
+                        {
+                            @if (existingAfterImages.Any() || pendingAfterPreviews.Any())
+                            {
+                                <div class="chart-thumbs">
+                                    @foreach (var img in existingAfterImages)
+                                    {
+                                        <div class="thumb-wrap">
+                                            <img src="@img.Url" class="chart-thumb" @onclick="() => OpenLightbox(img.Url)" title="Click to view" />
+                                            <button type="button" class="thumb-del" @onclick="() => DeleteExistingImage(img.Id)" title="Remove">✕</button>
+                                        </div>
+                                    }
+                                    @foreach (var (preview, idx) in pendingAfterPreviews.Select((p, i) => (p, i)))
+                                    {
+                                        <div class="thumb-wrap thumb-pending">
+                                            <img src="@preview" class="chart-thumb" @onclick="() => OpenLightbox(preview)" title="Pending upload" />
+                                            <button type="button" class="thumb-del" @onclick="() => RemovePendingAfter(idx)" title="Remove">✕</button>
+                                            <div class="thumb-badge">Pending</div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            <label class="chart-drop" for="after-upload-input">
+                                <div class="drop-ico">📁</div>
+                                <div class="drop-title">Click to upload after chart</div>
+                                <div class="drop-sub">AI will detect WIN/LOSS outcome</div>
+                            </label>
+                            <InputFile id="after-upload-input" class="file-hidden" OnChange="OnAfterFilesSelected" accept="image/*" multiple />
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(imageError))
+                {
+                    <div class="tv-alert tv-alert-danger mt-3">⚠️ @imageError</div>
+                }
+            </div>
+        </div>
+
+        @* ── AI EXTRACTION PANEL ───────────────────────────────────────────────── *@
+        @if (aiBeforeLoading)
+        {
+            <div class="ai-loading mb-4">
+                <div class="ai-spinner"></div>
+                <span>🤖 AI is reading your chart — extracting Entry, Stop Loss &amp; Take Profit...</span>
+            </div>
+        }
+        else if (beforeExtraction != null)
+        {
+            <div class="ai-panel mb-4">
+                <div class="ai-panel-header">
+                    <span style="font-size:20px;">🤖</span>
+                    <span class="ai-panel-title">AI Extraction Results</span>
+                    @if (!string.IsNullOrEmpty(beforeExtraction.Pattern))
+                    {
+                        <span class="ai-pattern-tag">📐 @beforeExtraction.Pattern</span>
+                    }
+                    @if (beforeExtraction.Success)
+                    {
+                        <span class="tv-badge tv-badge-win" style="font-size:11px;">✓ Extracted</span>
+                    }
+                    else
+                    {
+                        <span class="tv-badge tv-badge-loss" style="font-size:11px;">⚠ Partial</span>
+                    }
+                    <button type="button" class="ai-dismiss-btn" @onclick="DismissBeforeExtraction">✕</button>
+                </div>
+
+                @if (!beforeExtraction.Success && !string.IsNullOrEmpty(beforeExtraction.ErrorMessage))
+                {
+                    <div class="ai-error-box mb-3">⚠️ @beforeExtraction.ErrorMessage</div>
+                }
+
+                @* Confidence grid *@
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Entry Price</div>
+                        <div style="font-size:16px;font-weight:700;color:var(--accent-primary);">
+                            @(beforeExtraction.Entry.HasValue ? beforeExtraction.Entry.Value.ToString("G7") : "—")
+                        </div>
+                        <div class="ai-confidence-bar">
+                            <div class="ai-confidence-fill" style="width:@beforeExtraction.EntryConfidence%;background:@ConfidenceColor(beforeExtraction.EntryConfidence);"></div>
+                        </div>
+                        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@beforeExtraction.EntryConfidence% confident</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Stop Loss</div>
+                        <div style="font-size:16px;font-weight:700;color:var(--accent-danger);">
+                            @(beforeExtraction.StopLoss.HasValue ? beforeExtraction.StopLoss.Value.ToString("G7") : "—")
+                        </div>
+                        <div class="ai-confidence-bar">
+                            <div class="ai-confidence-fill" style="width:@beforeExtraction.SlConfidence%;background:@ConfidenceColor(beforeExtraction.SlConfidence);"></div>
+                        </div>
+                        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@beforeExtraction.SlConfidence% confident</div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Take Profit</div>
+                        <div style="font-size:16px;font-weight:700;color:var(--accent-success);">
+                            @(beforeExtraction.TakeProfit.HasValue ? beforeExtraction.TakeProfit.Value.ToString("G7") : "—")
+                        </div>
+                        <div class="ai-confidence-bar">
+                            <div class="ai-confidence-fill" style="width:@beforeExtraction.TpConfidence%;background:@ConfidenceColor(beforeExtraction.TpConfidence);"></div>
+                        </div>
+                        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">@beforeExtraction.TpConfidence% confident</div>
+                    </div>
+                </div>
+
+                @* Metadata row *@
+                <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                    @if (!string.IsNullOrEmpty(beforeExtraction.Pair))
+                    {
+                        <span class="tv-badge tv-badge-breakeven">🔤 @beforeExtraction.Pair</span>
+                    }
+                    @if (!string.IsNullOrEmpty(beforeExtraction.Timeframe))
+                    {
+                        <span class="tv-badge tv-badge-breakeven">⏱️ @beforeExtraction.Timeframe</span>
+                    }
+                    @if (!string.IsNullOrEmpty(beforeExtraction.Direction))
+                    {
+                        <span class="tv-badge @(beforeExtraction.Direction == "BUY" ? "tv-badge-buy" : "tv-badge-sell")">
+                            @(beforeExtraction.Direction == "BUY" ? "🟢" : "🔴") @beforeExtraction.Direction
+                        </span>
+                    }
+                </div>
+
+                @* AI Summary *@
+                @if (!string.IsNullOrEmpty(beforeExtraction.Summary))
+                {
+                    <div class="ai-summary-box">
+                        💡 @beforeExtraction.Summary
+                    </div>
+                }
+
+                <div style="display:flex;gap:10px;margin-top:14px;align-items:center;">
+                    <button type="button" class="ai-apply-btn" @onclick="ApplyAllBeforeAiValues">
+                        ✅ Apply All AI Values
+                    </button>
+                    <button type="button" class="ai-dismiss-btn" @onclick="DismissBeforeExtraction">
+                        ✏️ Enter Manually
+                    </button>
+                    <span style="font-size:11px;color:var(--text-muted);">You can edit any field after applying</span>
+                </div>
+            </div>
+        }
+
+        @* ── PRICE LEVELS & RR ─────────────────────────────────────────────────── *@
+        <div class="tv-card mb-4">
+            <div class="tv-card-header">
+                <span class="tv-card-title">💲 Price Levels &amp; Risk/Reward</span>
+            </div>
+            <div class="tv-card-body">
+                <div class="tv-form-grid-3">
+                    <div class="tv-form-group">
+                        <label class="tv-label">
+                            Entry Price <span class="label-required">*</span>
+                            @if (aiAppliedEntry && trade.AiEntryConfidence.HasValue)
+                            {
+                                <span class="ai-badge-field ms-2">🤖 @trade.AiEntryConfidence%</span>
+                            }
+                        </label>
+                        <InputNumber class="@($"tv-input {(aiAppliedEntry ? "field-ai-applied" : "")}")"
+                                     @bind-Value="trade.EntryPrice"
+                                     @bind-Value:after="RecalcRR"
+                                     @oninput="() => aiAppliedEntry = false"
+                                     placeholder="0.00000" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">
+                            Stop Loss
+                            @if (aiAppliedSL && trade.AiSlConfidence.HasValue)
+                            {
+                                <span class="ai-badge-field ms-2">🤖 @trade.AiSlConfidence%</span>
+                            }
+                        </label>
+                        <InputNumber class="@($"tv-input {(aiAppliedSL ? "field-ai-applied" : "")}")"
+                                     @bind-Value="trade.StopLoss"
+                                     @bind-Value:after="RecalcRR"
+                                     @oninput="() => aiAppliedSL = false"
+                                     placeholder="0.00000" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">
+                            Take Profit
+                            @if (aiAppliedTP && trade.AiTpConfidence.HasValue)
+                            {
+                                <span class="ai-badge-field ms-2">🤖 @trade.AiTpConfidence%</span>
+                            }
+                        </label>
+                        <InputNumber class="@($"tv-input {(aiAppliedTP ? "field-ai-applied" : "")}")"
+                                     @bind-Value="trade.TakeProfit"
+                                     @bind-Value:after="RecalcRR"
+                                     @oninput="() => aiAppliedTP = false"
+                                     placeholder="0.00000" />
+                    </div>
+                </div>
+
+                @if (calculatedRR.HasValue)
+                {
+                    <div class="rr-live-bar">
+                        <div class="rr-live-segment">
+                            <span class="rr-live-label">Risk</span>
+                            <span class="rr-live-value">@riskPips.ToString("G6")</span>
+                        </div>
+                        <div class="rr-live-sep">:</div>
+                        <div class="rr-live-segment">
+                            <span class="rr-live-label">Reward</span>
+                            <span class="rr-live-value">@rewardPips.ToString("G6")</span>
+                        </div>
+                        <div class="rr-live-sep">=</div>
+                        <div class="rr-live-segment rr-live-main">
+                            <span class="rr-live-label">RR Ratio</span>
+                            <span class="rr-live-value">@calculatedRR.Value.ToString("F2")R</span>
+                        </div>
+                        <span class="@(calculatedRR.Value >= 2m ? "rr-tag-good" : calculatedRR.Value >= 1m ? "rr-tag-ok" : "rr-tag-low")">
+                            @(calculatedRR.Value >= 2m ? "✅ Great" : calculatedRR.Value >= 1m ? "⚡ Decent" : "⚠️ Low RR")
+                        </span>
+                    </div>
+                }
+                else if (trade.EntryPrice > 0)
+                {
+                    <div class="rr-hint">Enter Stop Loss and Take Profit to auto-calculate RR</div>
+                }
+
+                <div class="section-sep"><span>Position Sizing</span></div>
+                <div class="tv-form-grid-2">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Lot Size</label>
+                        <InputNumber class="tv-input" @bind-Value="trade.LotSize" placeholder="0.01" />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Risk %</label>
+                        <InputNumber class="tv-input" @bind-Value="trade.RiskPercent" placeholder="1.0" />
+                    </div>
+                </div>
+
+                @if (trade.Status != "PENDING")
+                {
+                    <div class="section-sep"><span>Closing Details</span></div>
+                    <div class="tv-form-grid-2">
+                        <div class="tv-form-group">
+                            <label class="tv-label">Exit Price</label>
+                            <InputNumber class="tv-input" @bind-Value="trade.ExitPrice" placeholder="0.00000" />
+                        </div>
+                        <div class="tv-form-group">
+                            <label class="tv-label">P&amp;L ($)</label>
+                            <InputNumber class="tv-input" @bind-Value="trade.PnL" placeholder="0.00" />
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* ── AI AFTER-TRADE ANALYSIS PANEL ─────────────────────────────────────── *@
+        @if (aiAfterLoading)
+        {
+            <div class="ai-loading mb-4">
+                <div class="ai-spinner"></div>
+                <span>🔍 AI is comparing Before &amp; After charts to determine trade outcome...</span>
+            </div>
+        }
+        else if (afterAnalysis != null)
+        {
+            <div class="ai-panel mb-4">
+                <div class="ai-panel-header">
+                    <span style="font-size:20px;">🔍</span>
+                    <span class="ai-panel-title">AI After-Trade Analysis</span>
+                    @if (!string.IsNullOrEmpty(afterAnalysis.Outcome))
+                    {
+                        <span class="tv-badge @OutcomeBadgeClass(afterAnalysis.Outcome)" style="font-size:12px;">
+                            @OutcomeEmoji(afterAnalysis.Outcome) @afterAnalysis.Outcome
+                        </span>
+                    }
+                    <span style="font-size:11px;color:var(--text-muted);">@afterAnalysis.Confidence% confident</span>
+                    <button type="button" class="ai-dismiss-btn" @onclick="() => afterAnalysis = null">✕</button>
+                </div>
+
+                <div class="ai-outcome-card">
+                    <div class="ai-outcome-item">
+                        <div class="ai-outcome-label">Exit Price</div>
+                        <div class="ai-outcome-value" style="color:var(--accent-primary);">
+                            @(afterAnalysis.ExitPrice.HasValue ? afterAnalysis.ExitPrice.Value.ToString("G7") : "—")
+                        </div>
+                    </div>
+                    <div class="ai-outcome-item">
+                        <div class="ai-outcome-label">Pips</div>
+                        <div class="ai-outcome-value" style="color:@(afterAnalysis.PipsGained >= 0 ? "var(--accent-success)" : "var(--accent-danger)");">
+                            @(afterAnalysis.PipsGained.HasValue ? (afterAnalysis.PipsGained >= 0 ? "+" : "") + afterAnalysis.PipsGained.Value.ToString("G5") : "—")
+                        </div>
+                    </div>
+                    <div class="ai-outcome-item">
+                        <div class="ai-outcome-label">Actual RR</div>
+                        <div class="ai-outcome-value" style="color:@(afterAnalysis.ActualRR >= 0 ? "var(--accent-success)" : "var(--accent-danger)");">
+                            @(afterAnalysis.ActualRR.HasValue ? (afterAnalysis.ActualRR >= 0 ? "+" : "") + afterAnalysis.ActualRR.Value.ToString("F2") + "R" : "—")
+                        </div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(afterAnalysis.Analysis))
+                {
+                    <div class="ai-summary-box">💬 @afterAnalysis.Analysis</div>
+                }
+
+                <div style="display:flex;gap:10px;margin-top:14px;align-items:center;">
+                    <button type="button" class="ai-apply-btn" @onclick="ApplyAfterAnalysis">
+                        ✅ Apply Outcome &amp; Close Trade
+                    </button>
+                    <button type="button" class="ai-dismiss-btn" @onclick="() => afterAnalysis = null">
+                        ✏️ Set Manually
+                    </button>
+                </div>
+            </div>
+        }
+
+        @* ── SETUP & STRATEGY ──────────────────────────────────────────────────── *@
+        <div class="tv-card mb-4">
+            <div class="tv-card-header">
+                <span class="tv-card-title">🎯 Setup &amp; Strategy</span>
+            </div>
+            <div class="tv-card-body">
+                <div class="tv-form-grid-2">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Strategy</label>
+                        <InputSelect class="tv-select" @bind-Value="trade.Strategy">
+                            <option value="">— Select Strategy —</option>
+                            <option>SMC Order Block</option><option>Liquidity Grab Sweep</option>
+                            <option>Fair Value Gap Fill</option><option>ICT Killzone Entry</option>
+                            <option>Support/Resistance Bounce</option><option>Breakout Retest</option>
+                            <option>Trend Following</option><option>Other</option>
+                        </InputSelect>
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">
+                            Timeframe
+                            @if (!string.IsNullOrEmpty(trade.AiExtractedTimeframe) && !aiTimeframeDismissed)
+                            {
+                                <span class="ai-badge-field ms-2" @onclick="() => ApplyAiTimeframe()" title="AI detected">🤖 @trade.AiExtractedTimeframe</span>
+                            }
+                        </label>
+                        <InputSelect class="@($"tv-select {(aiAppliedTimeframe ? "field-ai-applied" : "")}")" @bind-Value="trade.Timeframe" @onchange="() => aiAppliedTimeframe = false">
+                            <option value="">— Select TF —</option>
+                            <option>M1</option><option>M5</option><option>M15</option><option>M30</option>
+                            <option>H1</option><option>H4</option><option>Daily</option><option>Weekly</option>
+                        </InputSelect>
+                    </div>
+                </div>
+                <div class="tv-form-grid-2">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Tags (comma-separated)</label>
+                        <InputText class="tv-input" @bind-Value="trade.Tags" placeholder="SMC, BUY, H1, cleansetup..." />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">News Trade?</label>
+                        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+                            <InputCheckbox @bind-Value="trade.NewsTrade" id="newsTrade" />
+                            <label for="newsTrade" style="font-size:13px;color:var(--text-secondary);">Taken around a news event</label>
+                        </div>
+                    </div>
+                </div>
+                @* AI Pattern detected *@
+                @if (!string.IsNullOrEmpty(trade.AiDetectedPattern))
+                {
+                    <div style="margin-bottom:12px;">
+                        <div class="tv-stat-label mb-2">🤖 AI Detected Pattern</div>
+                        <span class="ai-pattern-tag">📐 @trade.AiDetectedPattern</span>
+                    </div>
+                }
+                <div class="tv-form-group">
+                    <label class="tv-label">Notes</label>
+                    <InputTextArea class="tv-textarea" @bind-Value="trade.Notes" placeholder="Describe your setup, confluences, HTF bias, market context..." />
+                </div>
+                @* AI Summary auto-populated *@
+                @if (!string.IsNullOrEmpty(trade.AiSummary))
+                {
+                    <div class="tv-form-group">
+                        <label class="tv-label">🤖 AI Trade Summary</label>
+                        <div class="ai-summary-box">@trade.AiSummary</div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* ── PSYCHOLOGY ────────────────────────────────────────────────────────── *@
+        <div class="tv-card mb-4">
+            <div class="tv-card-header">
+                <span class="tv-card-title">🧠 Psychology &amp; Review</span>
+            </div>
+            <div class="tv-card-body">
+                <div class="tv-form-grid-2">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Emotions Before Trade</label>
+                        <InputSelect class="tv-select" @bind-Value="trade.EmotionsBefore">
+                            <option value="">— Select —</option>
+                            <option>Calm</option><option>Focused</option><option>Confident</option>
+                            <option>Anxious</option><option>Fearful</option><option>Greedy</option>
+                            <option>Neutral</option><option>Excited</option><option>Frustrated</option>
+                        </InputSelect>
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Confidence Level (1–10)</label>
+                        <InputNumber class="tv-input" @bind-Value="trade.Confidence" min="1" max="10" placeholder="7" />
+                    </div>
+                </div>
+                <div class="tv-form-grid-2">
+                    <div class="tv-form-group">
+                        <label class="tv-label">Mistakes Made</label>
+                        <InputTextArea class="tv-textarea" style="min-height:80px;" @bind-Value="trade.Mistakes" placeholder="Rule violations, early entry, oversizing..." />
+                    </div>
+                    <div class="tv-form-group">
+                        <label class="tv-label">Lessons Learned</label>
+                        <InputTextArea class="tv-textarea" style="min-height:80px;" @bind-Value="trade.Lessons" placeholder="What will you do differently next time?" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMsg))
+        {
+            <div class="tv-alert tv-alert-danger mb-4">⚠️ @errorMsg</div>
+        }
+
+        <div class="flex justify-end gap-3 mb-4">
+            <a href="/trades" class="tv-btn tv-btn-ghost tv-btn-lg">Cancel</a>
+            <button type="submit" class="tv-btn tv-btn-primary tv-btn-lg" disabled="@saving">
+                @if (saving)
+                {
+                    <span>⏳ Saving...</span>
+                }
+                else if (!isEdit)
+                {
+                    <span>✅ Log Trade</span>
+                }
+                else if (trade.Status == "PENDING")
+                {
+                    <span>💾 Update Trade</span>
+                }
+                else
+                {
+                    <span>🏁 Close &amp; Save Trade</span>
+                }
+            </button>
+        </div>
+    </EditForm>
+}
+
+@* ── LIGHTBOX ──────────────────────────────────────────────────────────────── *@
+@if (!string.IsNullOrEmpty(lightboxUrl))
+{
+    <div class="lightbox-overlay" @onclick="CloseLightbox">
+        <div class="lightbox-box" @onclick:stopPropagation>
+            <button class="lightbox-close" @onclick="CloseLightbox">✕</button>
+            <img src="@lightboxUrl" class="lightbox-img" alt="Chart screenshot" />
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid? TradeId { get; set; }
+
+    private Trade trade = new();
+    private bool loading  = true;
+    private bool saving   = false;
+    private bool isEdit   = false;
+    private string userId    = "";
+    private string errorMsg  = "";
+    private string imageError = "";
+    private string lightboxUrl = "";
+    private string geminiApiKeyInput = "";
+
+    private async Task OnUpdateApiKey()
+    {
+        if (!string.IsNullOrWhiteSpace(geminiApiKeyInput))
+        {
+            AiService.CustomApiKey = geminiApiKeyInput.Trim();
+            if (lastBeforeImageBytes != null && (beforeExtraction == null || !beforeExtraction.Success))
+            {
+                await RunBeforeAiExtraction();
+            }
+        }
+    }
+
+    // Existing DB images
+    private List<TradeImage> existingBeforeImages = [];
+    private List<TradeImage> existingAfterImages  = [];
+
+    // Before-image bytes for AI analysis
+    private byte[]? lastBeforeImageBytes;
+    private string  lastBeforeContentType = "image/png";
+    private byte[]? lastAfterImageBytes;
+    private string  lastAfterContentType  = "image/png";
+
+    // Pending (selected but not yet uploaded) images
+    private record PendingImg(string FileName, byte[] Bytes, string ContentType);
+    private List<PendingImg> pendingBeforeFiles = [];
+    private List<PendingImg> pendingAfterFiles  = [];
+    private List<string>     pendingBeforePreviews = [];
+    private List<string>     pendingAfterPreviews  = [];
+
+    // Live RR
+    private decimal? calculatedRR;
+    private decimal  riskPips;
+    private decimal  rewardPips;
+
+    // AI state
+    private bool aiBeforeLoading = false;
+    private bool aiAfterLoading  = false;
+    private BeforeTradeExtraction? beforeExtraction;
+    private AfterTradeAnalysis? afterAnalysis;
+
+    // Field-level AI application tracking
+    private bool aiAppliedEntry     = false;
+    private bool aiAppliedSL        = false;
+    private bool aiAppliedTP        = false;
+    private bool aiAppliedPair      = false;
+    private bool aiAppliedDirection = false;
+    private bool aiAppliedTimeframe = false;
+    private bool aiPairDismissed      = false;
+    private bool aiDirectionDismissed = false;
+    private bool aiTimeframeDismissed = false;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+
+        if (TradeId.HasValue)
+        {
+            isEdit = true;
+            var existing = await TradeService.GetTradeAsync(TradeId.Value, userId);
+            if (existing != null)
+            {
+                trade = existing;
+                existingBeforeImages = [..trade.Images.Where(i => i.Category == "BEFORE")];
+                existingAfterImages  = [..trade.Images.Where(i => i.Category == "AFTER")];
+                RecalcRR();
+            }
+            else
+            {
+                Nav.NavigateTo("/trades");
+            }
+        }
+        loading = false;
+    }
+
+    // ── RR Calculation ────────────────────────────────────────────────────────
+
+    private void RecalcRR()
+    {
+        if (trade.EntryPrice > 0 && trade.StopLoss > 0 && trade.TakeProfit > 0)
+        {
+            riskPips   = Math.Abs(trade.EntryPrice - trade.StopLoss!.Value);
+            rewardPips = Math.Abs(trade.TakeProfit!.Value - trade.EntryPrice);
+            calculatedRR = riskPips > 0 ? Math.Round(rewardPips / riskPips, 2) : (decimal?)null;
+            if (calculatedRR.HasValue) trade.RRRatio = calculatedRR;
+        }
+        else
+        {
+            calculatedRR = null;
+        }
+    }
+
+    // ── AI: Apply all extracted Before values ─────────────────────────────────
+
+    private void ApplyAllBeforeAiValues()
+    {
+        if (beforeExtraction == null) return;
+
+        if (beforeExtraction.Entry.HasValue)    { trade.EntryPrice  = beforeExtraction.Entry.Value;     aiAppliedEntry = true; }
+        if (beforeExtraction.StopLoss.HasValue) { trade.StopLoss    = beforeExtraction.StopLoss.Value;  aiAppliedSL = true; }
+        if (beforeExtraction.TakeProfit.HasValue){ trade.TakeProfit = beforeExtraction.TakeProfit.Value; aiAppliedTP = true; }
+
+        // Store confidence in trade fields
+        trade.AiEntryConfidence = beforeExtraction.EntryConfidence;
+        trade.AiSlConfidence    = beforeExtraction.SlConfidence;
+        trade.AiTpConfidence    = beforeExtraction.TpConfidence;
+        trade.AiDetectedPattern = beforeExtraction.Pattern;
+        trade.AiSummary         = beforeExtraction.Summary;
+        trade.AiFieldsApplied   = true;
+
+        // Apply metadata suggestions
+        if (!string.IsNullOrEmpty(beforeExtraction.Pair))      { trade.AiExtractedPair = beforeExtraction.Pair; }
+        if (!string.IsNullOrEmpty(beforeExtraction.Direction)) { trade.AiExtractedDirection = beforeExtraction.Direction; }
+        if (!string.IsNullOrEmpty(beforeExtraction.Timeframe)) { trade.AiExtractedTimeframe = beforeExtraction.Timeframe; }
+
+        if (string.IsNullOrEmpty(trade.Pair) && !string.IsNullOrEmpty(beforeExtraction.Pair))
+        { trade.Pair = beforeExtraction.Pair; aiAppliedPair = true; }
+
+        if (!string.IsNullOrEmpty(beforeExtraction.Direction))
+        { trade.Direction = beforeExtraction.Direction; aiAppliedDirection = true; }
+
+        if (string.IsNullOrEmpty(trade.Timeframe) && !string.IsNullOrEmpty(beforeExtraction.Timeframe))
+        { trade.Timeframe = beforeExtraction.Timeframe; aiAppliedTimeframe = true; }
+
+        RecalcRR();
+        beforeExtraction = null; // hide panel after applying
+        StateHasChanged();
+    }
+
+    private void ApplyAiPair()
+    {
+        if (!string.IsNullOrEmpty(trade.AiExtractedPair))
+        { trade.Pair = trade.AiExtractedPair; aiAppliedPair = true; aiPairDismissed = true; }
+    }
+
+    private void ApplyAiDirection()
+    {
+        if (!string.IsNullOrEmpty(trade.AiExtractedDirection))
+        { trade.Direction = trade.AiExtractedDirection; aiAppliedDirection = true; aiDirectionDismissed = true; }
+    }
+
+    private void ApplyAiTimeframe()
+    {
+        if (!string.IsNullOrEmpty(trade.AiExtractedTimeframe))
+        { trade.Timeframe = trade.AiExtractedTimeframe; aiAppliedTimeframe = true; aiTimeframeDismissed = true; }
+    }
+
+    private void DismissBeforeExtraction() => beforeExtraction = null;
+
+    // ── AI: Apply after-trade analysis ────────────────────────────────────────
+
+    private void ApplyAfterAnalysis()
+    {
+        if (afterAnalysis == null) return;
+
+        if (!string.IsNullOrEmpty(afterAnalysis.Outcome))
+        {
+            trade.Status = afterAnalysis.Outcome switch
+            {
+                "WIN"     => "WIN",
+                "LOSS"    => "LOSS",
+                "RUNNING" => "PENDING",
+                _         => trade.Status
+            };
+        }
+        if (afterAnalysis.ExitPrice.HasValue) trade.ExitPrice = afterAnalysis.ExitPrice;
+        if (afterAnalysis.ActualRR.HasValue)  trade.RRRatio   = afterAnalysis.ActualRR;
+        trade.AiOutcomeDetected   = afterAnalysis.Outcome;
+        trade.AiOutcomeConfidence = afterAnalysis.Confidence;
+        trade.AiAfterAnalysis     = afterAnalysis.Analysis;
+        afterAnalysis = null;
+        StateHasChanged();
+    }
+
+    // ── Image Handling ────────────────────────────────────────────────────────
+
+    private async Task OnFilesSelected(InputFileChangeEventArgs e, string category)
+    {
+        imageError = "";
+        const long maxBytes = 10L * 1024 * 1024;
+
+        foreach (var file in e.GetMultipleFiles(10))
+        {
+            if (file.Size > maxBytes) { imageError = $"{file.Name} exceeds 10 MB limit."; continue; }
+            try
+            {
+                using var stream = file.OpenReadStream(maxBytes);
+                var bytes = new byte[file.Size];
+                int totalRead = 0;
+                while (totalRead < bytes.Length)
+                {
+                    int read = await stream.ReadAsync(bytes.AsMemory(totalRead));
+                    if (read == 0) break;
+                    totalRead += read;
+                }
+
+                var dataUrl = $"data:{file.ContentType};base64,{Convert.ToBase64String(bytes)}";
+                var pending = new PendingImg(file.Name, bytes, file.ContentType);
+
+                if (category == "BEFORE")
+                {
+                    pendingBeforeFiles.Add(pending);
+                    pendingBeforePreviews.Add(dataUrl);
+                    // Store for AI — use the last uploaded file
+                    lastBeforeImageBytes   = bytes;
+                    lastBeforeContentType  = file.ContentType;
+                }
+                else
+                {
+                    pendingAfterFiles.Add(pending);
+                    pendingAfterPreviews.Add(dataUrl);
+                    lastAfterImageBytes  = bytes;
+                    lastAfterContentType = file.ContentType;
+                }
+            }
+            catch (Exception ex) { imageError = $"Failed to load {file.Name}: {ex.Message}"; }
+        }
+
+        StateHasChanged();
+
+        // Trigger AI extraction after file selection
+        if (category == "BEFORE" && lastBeforeImageBytes != null)
+        {
+            await RunBeforeAiExtraction();
+        }
+        else if (category == "AFTER" && lastAfterImageBytes != null && trade.Status != "PENDING")
+        {
+            await RunAfterAiAnalysis();
+        }
+    }
+
+    private async Task RunBeforeAiExtraction()
+    {
+        aiBeforeLoading = true;
+        beforeExtraction = null;
+        StateHasChanged();
+        try
+        {
+            var result = await AiService.ExtractBeforeTradeAsync(lastBeforeImageBytes!, lastBeforeContentType);
+            beforeExtraction = result;
+            // Persist raw extraction to DB if trade already exists
+            if (isEdit && result.RawResponse != null)
+            {
+                await TradeService.SaveAiExtractionAsync(new TradeAiExtraction
+                {
+                    TradeId       = trade.Id,
+                    ImageCategory = "BEFORE",
+                    RawResponse   = result.RawResponse,
+                    ExtractedAt   = DateTime.UtcNow
+                });
+            }
+        }
+        finally { aiBeforeLoading = false; StateHasChanged(); }
+    }
+
+    private async Task RunAfterAiAnalysis()
+    {
+        // Need both before and after images for comparison
+        byte[]? beforeBytes = lastBeforeImageBytes;
+        string  beforeCt    = lastBeforeContentType;
+
+        // If no new before image was uploaded this session, try existing images
+        if (beforeBytes == null && existingBeforeImages.Any())
+        {
+            // We can only analyze if the before bytes are in memory
+            // Show a note that analysis will use AI with after chart only
+        }
+
+        if (beforeBytes == null || lastAfterImageBytes == null)
+        {
+            // Single image after-analysis fallback
+            afterAnalysis = new AfterTradeAnalysis(
+                Outcome: null, ExitPrice: null, PipsGained: null, ActualRR: null,
+                Analysis: "Upload the Before chart first in the same session to enable full AI comparison.",
+                Confidence: 0, Success: false,
+                ErrorMessage: "Before image not available for comparison.");
+            StateHasChanged();
+            return;
+        }
+
+        aiAfterLoading = true;
+        afterAnalysis  = null;
+        StateHasChanged();
+        try
+        {
+            var result = await AiService.AnalyzeAfterTradeAsync(
+                beforeBytes, beforeCt,
+                lastAfterImageBytes!, lastAfterContentType,
+                trade.EntryPrice, trade.StopLoss, trade.TakeProfit, trade.Direction);
+            afterAnalysis = result;
+            if (isEdit && result.Analysis != null)
+            {
+                await TradeService.SaveAiExtractionAsync(new TradeAiExtraction
+                {
+                    TradeId       = trade.Id,
+                    ImageCategory = "AFTER",
+                    RawResponse   = result.Analysis,
+                    ExtractedAt   = DateTime.UtcNow
+                });
+            }
+        }
+        finally { aiAfterLoading = false; StateHasChanged(); }
+    }
+
+    private Task OnBeforeFilesSelected(InputFileChangeEventArgs e) => OnFilesSelected(e, "BEFORE");
+    private Task OnAfterFilesSelected(InputFileChangeEventArgs e)  => OnFilesSelected(e, "AFTER");
+
+    private async Task DeleteExistingImage(Guid imageId)
+    {
+        await TradeService.DeleteTradeImageAsync(imageId, userId);
+        existingBeforeImages = [..existingBeforeImages.Where(i => i.Id != imageId)];
+        existingAfterImages  = [..existingAfterImages.Where(i => i.Id != imageId)];
+    }
+
+    private void RemovePendingBefore(int idx)
+    {
+        if (idx < pendingBeforeFiles.Count) { pendingBeforeFiles.RemoveAt(idx); pendingBeforePreviews.RemoveAt(idx); }
+    }
+
+    private void RemovePendingAfter(int idx)
+    {
+        if (idx < pendingAfterFiles.Count) { pendingAfterFiles.RemoveAt(idx); pendingAfterPreviews.RemoveAt(idx); }
+    }
+
+    private void OpenLightbox(string url) => lightboxUrl = url;
+    private void CloseLightbox()          => lightboxUrl = "";
+
+    // ── Save ──────────────────────────────────────────────────────────────────
+
+    private async Task SaveTrade()
+    {
+        saving   = true;
+        errorMsg = "";
+        try
+        {
+            trade.UserId = userId;
+            Guid savedId;
+
+            if (isEdit)
+            {
+                await TradeService.UpdateTradeAsync(trade);
+                savedId = trade.Id;
+            }
+            else
+            {
+                var saved = await TradeService.CreateTradeAsync(trade);
+                savedId = saved.Id;
+            }
+
+            // Upload pending before images
+            foreach (var p in pendingBeforeFiles)
+                await TradeService.SaveTradeImageAsync(savedId, p.FileName, p.Bytes, "BEFORE");
+
+            // Upload pending after images
+            foreach (var p in pendingAfterFiles)
+                await TradeService.SaveTradeImageAsync(savedId, p.FileName, p.Bytes, "AFTER");
+
+            // Persist AI extraction for new trades if we have data
+            if (!isEdit && beforeExtraction?.RawResponse != null)
+            {
+                await TradeService.SaveAiExtractionAsync(new TradeAiExtraction
+                {
+                    TradeId       = savedId,
+                    ImageCategory = "BEFORE",
+                    RawResponse   = beforeExtraction.RawResponse,
+                    ExtractedAt   = DateTime.UtcNow
+                });
+            }
+
+            Nav.NavigateTo("/trades");
+        }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { saving = false; }
+    }
+
+    // ── UI Helpers ────────────────────────────────────────────────────────────
+
+    private static string ConfidenceColor(int pct) => pct switch
+    {
+        >= 80 => "var(--accent-success)",
+        >= 60 => "var(--accent-warning)",
+        >= 40 => "#f97316",
+        _     => "var(--accent-danger)"
+    };
+
+    private static string OutcomeBadgeClass(string? outcome) => outcome switch
+    {
+        "WIN"     => "tv-badge-win",
+        "LOSS"    => "tv-badge-loss",
+        "RUNNING" => "tv-badge-pending",
+        _         => "tv-badge-breakeven"
+    };
+
+    private static string OutcomeEmoji(string? outcome) => outcome switch
+    {
+        "WIN"     => "🏆",
+        "LOSS"    => "❌",
+        "RUNNING" => "⏳",
+        "INVALID" => "⚠️",
+        _         => "❓"
+    };
+}
